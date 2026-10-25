@@ -23,10 +23,7 @@ export interface RegistroAuditoria {
   resultado: 'OK' | 'ERROR';
 }
 
-/// Registra toda operación sensible (login, creación/anulación de
-/// comprobantes, generación de ATS, cambios de permisos, etc.) tal como
-/// exige la Sección 19 del requerimiento. Nunca se omite en las rutas que
-/// modifican datos: se llama explícitamente desde cada service sensible.
+// Guarda los eventos emitidos por los servicios y redacta campos sensibles.
 @Injectable()
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}

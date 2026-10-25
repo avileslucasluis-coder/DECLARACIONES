@@ -96,8 +96,7 @@ export class AuthService {
       throw new UnauthorizedException('Sesión inválida o expirada, inicia sesión de nuevo.');
     }
 
-    // Rotación: el refresh token usado se revoca y se emite uno nuevo,
-    // así un token robado y reutilizado deja rastro (revocado dos veces).
+    // Consume el token una sola vez, incluso ante renovaciones simultáneas.
     const consumed = await this.prisma.refreshToken.updateMany({
       where: { id: registro.id, revocado: false, expiraEn: { gt: new Date() } },
       data: { revocado: true },
