@@ -29,16 +29,16 @@ export class RecoveryMailService {
           disableFileAccess: true, disableUrlAccess: true,
         });
         try {
-          await transport.sendMail({ from: { name: 'Dayanex', address: process.env.GMAIL_USER }, to: email,
-            subject: 'Restablecer contraseña de Dayanex',
-            text: `Se solicitó restablecer tu contraseña de Dayanex. Abre ${link.toString()} en los próximos 15 minutos. Si no lo solicitaste, ignora este mensaje.` });
+          await transport.sendMail({ from: { name: 'Sistema Tributario', address: process.env.GMAIL_USER }, to: email,
+            subject: 'Restablecer contraseña de Sistema Tributario',
+            text: `Se solicitó restablecer tu contraseña de Sistema Tributario. Abre ${link.toString()} en los próximos 15 minutos. Si no lo solicitaste, ignora este mensaje.` });
         } finally { transport.close(); }
         return;
       }
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST', signal: AbortSignal.timeout(10000),
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.MAIL_FROM, to: [email], subject: 'Restablecer contraseña de Dayanex',
+        body: JSON.stringify({ from: process.env.MAIL_FROM, to: [email], subject: 'Restablecer contraseña de Sistema Tributario',
           text: `Se solicitó restablecer tu contraseña. Abre ${link.toString()} en los próximos 15 minutos. Si no lo solicitaste, ignora este mensaje.` }),
       });
       if (!response.ok) throw new Error();

@@ -115,7 +115,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (_modoRegistro || !_accesoAnterior) ...[
                     TextFormField(
                       controller: _ruc,
-                      decoration: const InputDecoration(labelText: 'RUC', helperText: 'Usa tu contraseña de Dayanex, no la del SRI.'),
+                      decoration: const InputDecoration(labelText: 'RUC', helperText: 'Usa tu contraseña de Sistema Tributario, no la del SRI.'),
                       keyboardType: TextInputType.number,
                       maxLength: 13,
                       validator: (v) => RegExp(r'^\d{13}$').hasMatch(v ?? '') ? null : 'Ingresa los 13 dígitos del RUC',

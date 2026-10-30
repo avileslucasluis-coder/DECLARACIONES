@@ -95524,7 +95524,7 @@ for(n=0;n<5;++n)o[n]=A.vd(new A.ee(Date.now(),0,!1))-n
 k=A.Y(o).i("a2<1,ef<m>>")
 k=A.Z(new A.a2(o,new A.aqi(),k),k.i("ag.E"))
 j=t.p
-q=A.dQ(A.b([p,B.fH,A.eg(A.mA(B.Ja,h,!1,k,i.y||i.z||i.Q?h:new A.aqj(i),l,q),1)],j),B.K,B.x,B.R,0)
+q=A.dQ(A.b([p,B.fH,A.eg(A.mA(B.J9,h,!1,k,i.y||i.z||i.Q?h:new A.aqj(i),l,q),1)],j),B.K,B.x,B.R,0)
 p=i.y
 l=p||i.z||i.Q?h:i.gabS()
 k=p?B.B1:B.IE
@@ -95812,7 +95812,7 @@ return A.I($async$ue,r)},
 F(a){var s=this,r=null,q=A.fg(B.pm,B.ai,r,56),p=s.y?"Crea tu cuenta":"Inicia sesi\xf3n para continuar",o=t.p
 p=A.b([q,B.a9,B.aaQ,B.fI,A.av(p,r,r,r,A.bT(r,r,B.bh,r,r,r,r,r,r,r,r,r,r,r,r,r,r,!0,r,r,r,r,r,r,r,r),r,r),B.a4L],o)
 if(s.y)B.b.R(p,A.b([A.rn(s.x,B.J1,r,r,!1,new A.atR()),B.a9],o))
-if(s.y||!s.f)B.b.R(p,A.b([A.rn(s.e,B.J9,B.Bp,13,!1,new A.atS()),B.a9],o))
+if(s.y||!s.f)B.b.R(p,A.b([A.rn(s.e,B.Ja,B.Bp,13,!1,new A.atS()),B.a9],o))
 if(s.y||s.f)p.push(A.rn(s.r,B.J2,B.mE,r,!1,new A.atT()))
 p.push(B.a9)
 p.push(A.rn(s.w,B.J8,r,r,!0,new A.atU(s)))
@@ -101875,8 +101875,8 @@ B.Im=new A.bo(61195,"MaterialIcons",!1)
 B.IU=new A.d_(B.Im,null,null,null,null)
 B.J7=new A.ei(null,null,null,"Empresa emisora",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,B.IU,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
 B.J8=new A.ei(null,null,null,"Contrase\xf1a",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
-B.J9=new A.ei(null,null,null,"RUC",null,null,null,"Usa tu contrase\xf1a de Dayanex, no la del SRI.",null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
-B.Ja=new A.ei(null,null,null,"A\xf1o",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
+B.J9=new A.ei(null,null,null,"A\xf1o",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
+B.Ja=new A.ei(null,null,null,"RUC",null,null,null,"Usa tu contrase\xf1a de Sistema Tributario, no la del SRI.",null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
 B.pq=new A.ei(null,null,null,"Mes",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
 B.Jb=new A.ei(null,null,null,"Correo de tu cuenta",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)
 B.Jc=new A.ei(null,null,null,"Raz\xf3n social",null,null,null,null,null,null,null,null,null,null,null,null,!0,!0,!1,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,!0,null,null,null,null)

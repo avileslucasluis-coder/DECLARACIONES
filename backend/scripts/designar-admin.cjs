@@ -4,7 +4,7 @@ const messages = {
   INPUT: 'Faltan correo, conexion o la confirmacion DESIGNAR ADMINISTRADOR.',
   URL: 'Conexion invalida. Pega solo la direccion postgresql://, sin psql ni comillas.',
   TLS: 'La conexion remota requiere sslmode=require y sslaccept=strict. Agrega &sslaccept=strict al final si falta.',
-  ACCOUNT: 'No existe una cuenta con ese correo en esta base. Registrate primero en Dayanex con ese correo.',
+  ACCOUNT: 'No existe una cuenta con ese correo en esta base. Registrate primero en Sistema Tributario con ese correo.',
   INACTIVE: 'La cuenta existe pero esta suspendida. No se modificaron sus permisos.',
   P1000: 'Neon rechazo las credenciales. Copia nuevamente la conexion desde Connect.',
   P1001: 'No se pudo conectar con Neon. Revisa la conexion y el acceso a Internet.',
