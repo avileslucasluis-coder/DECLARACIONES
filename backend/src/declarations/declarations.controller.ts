@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Query, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsInt, IsUUID, Max, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -28,6 +28,12 @@ class GenerarDeclaracionDto {
 @Controller('api/declarations')
 export class DeclarationsController {
   constructor(private readonly declarations: DeclarationsService) {}
+
+  @Get('history')
+  @RequirePermissions('declaraciones.generar')
+  historial(@Query('companyId') companyId: string, @Query('mes') mes: string, @Query('anio') anio: string) {
+    return this.declarations.historial(companyId, Number(mes), Number(anio));
+  }
 
   @Post('generar')
   @RequirePermissions('declaraciones.generar')

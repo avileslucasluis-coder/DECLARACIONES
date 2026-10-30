@@ -23,7 +23,9 @@ class ApiConfig {
       }
       return pagina.replace(port: 3000).origin;
     }
-    if (defaultTargetPlatform == TargetPlatform.android) return 'http://10.0.2.2:3000';
+    if (defaultTargetPlatform == TargetPlatform.android || kReleaseMode) {
+      return 'https://declaraciones-nine.vercel.app';
+    }
     return 'http://localhost:3000';
   }
 }

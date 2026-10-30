@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { create } from 'xmlbuilder2';
 import { createHash } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { metadataAts, tipoIdentificacionAts } from './ats-metadata';
@@ -150,9 +151,10 @@ export class AtsService {
     );
 
     const totalVentasPeriodo = ventas.reduce(
-      (acc: number, v: (typeof vouchers)[number]) =>
-        acc + (v.tipoComprobante === 'NOTA_CREDITO' ? -1 : 1) * (Number(v.baseImponibleIva) + Number(v.baseImponibleIva0)),
-      0,
+      (acc: Prisma.Decimal, v: (typeof vouchers)[number]) =>
+        acc.plus(new Prisma.Decimal(v.baseImponibleIva).plus(v.baseImponibleIva0)
+          .times(v.tipoComprobante === 'NOTA_CREDITO' ? -1 : 1)),
+      new Prisma.Decimal(0),
     );
 
     const doc = create({ version: '1.0', encoding: 'UTF-8' }).ele('iva');
@@ -185,11 +187,11 @@ export class AtsService {
       det.ele('fechaEmision').txt(formatearFecha(c.fechaEmision)).up();
       det.ele('autorizacion').txt(c.claveAcceso).up();
       det.ele('baseNoGraIva').txt('0.00').up();
-      det.ele('baseImponible').txt(Number(c.baseImponibleIva0).toFixed(2)).up();
-      det.ele('baseImpGrav').txt(Number(c.baseImponibleIva).toFixed(2)).up();
+      det.ele('baseImponible').txt(new Prisma.Decimal(c.baseImponibleIva0).toFixed(2)).up();
+      det.ele('baseImpGrav').txt(new Prisma.Decimal(c.baseImponibleIva).toFixed(2)).up();
       det.ele('baseImpExe').txt('0.00').up();
       det.ele('montoIce').txt('0.00').up();
-      det.ele('montoIva').txt(Number(c.montoIva).toFixed(2)).up();
+      det.ele('montoIva').txt(new Prisma.Decimal(c.montoIva).toFixed(2)).up();
       det.ele('valRetBien10').txt('0.00').up();
       det.ele('valRetServ20').txt('0.00').up();
       det.ele('valorRetBienes').txt(valBienes30.toFixed(2)).up();
@@ -218,13 +220,14 @@ export class AtsService {
     for (const grupo of grupos.values()) {
       const v = grupo[0];
       const meta = metadataAts(v.xmlOriginal);
-      const sumar = (campo: 'baseImponibleIva0' | 'baseImponibleIva' | 'montoIva') => grupo.reduce((s, item) => s + Number(item[campo]), 0).toFixed(2);
+      const sumar = (campo: 'baseImponibleIva0' | 'baseImponibleIva' | 'montoIva') =>
+        grupo.reduce((s, item) => s.plus(item[campo]), new Prisma.Decimal(0)).toFixed(2);
       const det = ventasEl.ele('detalleVentas');
       det.ele('tpIdCliente').txt(tipoIdentificacionAts(v.identificacionContraparte ?? '', true, meta.tipoIdentificacion)).up();
       det.ele('idCliente').txt(v.identificacionContraparte!).up();
       det.ele('parteRelVtas').txt(meta.parteRelacionada ?? 'NO').up();
       det.ele('tipoComprobante').txt(mapearCodigoComprobante(v.tipoComprobante)).up();
-      det.ele('tipoEmision').txt('E').up(); // "E" = electrónico, ya que viene de un XML autorizado por el SRI
+      det.ele('tipoEmision').txt('E').up(); // XML electrónico importado; no acredita autorización remota.
       det.ele('numeroComprobantes').txt(String(grupo.length)).up();
       det.ele('baseNoGraIva').txt('0.00').up();
       det.ele('baseImponible').txt(sumar('baseImponibleIva0')).up();

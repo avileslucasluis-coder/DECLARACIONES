@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -21,41 +22,41 @@ export class DeclarationsService {
       where: { companyId, fechaEmision: { gte: desde, lt: hasta } },
     });
 
-    let ventasGravadas = 0,
-      ventas0 = 0,
-      ivaVentas = 0;
-    let comprasGravadas = 0,
-      compras0 = 0,
-      ivaCompras = 0;
-    let ivaRetenidoEnVentas = 0,
-      rentaRetenidaEnVentas = 0;
-    let retIvaAplicada = 0,
-      retRentaAplicada = 0;
+    let ventasGravadas = new Prisma.Decimal(0),
+      ventas0 = new Prisma.Decimal(0),
+      ivaVentas = new Prisma.Decimal(0);
+    let comprasGravadas = new Prisma.Decimal(0),
+      compras0 = new Prisma.Decimal(0),
+      ivaCompras = new Prisma.Decimal(0);
+    let ivaRetenidoEnVentas = new Prisma.Decimal(0),
+      rentaRetenidaEnVentas = new Prisma.Decimal(0);
+    let retIvaAplicada = new Prisma.Decimal(0),
+      retRentaAplicada = new Prisma.Decimal(0);
 
     for (const v of vouchers) {
       const signo = v.tipoComprobante === 'NOTA_CREDITO' ? -1 : 1;
-      const baseIva = Number(v.baseImponibleIva);
-      const base0 = Number(v.baseImponibleIva0);
-      const iva = Number(v.montoIva);
+      const baseIva = new Prisma.Decimal(v.baseImponibleIva);
+      const base0 = new Prisma.Decimal(v.baseImponibleIva0);
+      const iva = new Prisma.Decimal(v.montoIva);
 
       switch (v.direccion) {
         case 'VENTA':
-          ventasGravadas += signo * baseIva;
-          ventas0 += signo * base0;
-          ivaVentas += signo * iva;
+          ventasGravadas = ventasGravadas.plus(baseIva.times(signo));
+          ventas0 = ventas0.plus(base0.times(signo));
+          ivaVentas = ivaVentas.plus(iva.times(signo));
           break;
         case 'COMPRA':
-          comprasGravadas += signo * baseIva;
-          compras0 += signo * base0;
-          ivaCompras += signo * iva;
+          comprasGravadas = comprasGravadas.plus(baseIva.times(signo));
+          compras0 = compras0.plus(base0.times(signo));
+          ivaCompras = ivaCompras.plus(iva.times(signo));
           break;
         case 'RETENCION_RECIBIDA':
-          ivaRetenidoEnVentas += iva;
-          rentaRetenidaEnVentas += Number(v.montoRentaRetenida);
+          ivaRetenidoEnVentas = ivaRetenidoEnVentas.plus(iva);
+          rentaRetenidaEnVentas = rentaRetenidaEnVentas.plus(v.montoRentaRetenida);
           break;
         case 'RETENCION_EMITIDA':
-          retIvaAplicada += iva;
-          retRentaAplicada += Number(v.montoRentaRetenida);
+          retIvaAplicada = retIvaAplicada.plus(iva);
+          retRentaAplicada = retRentaAplicada.plus(v.montoRentaRetenida);
           break;
         default:
           break;
@@ -65,7 +66,9 @@ export class DeclarationsService {
     // Las retenciones preparadas sobre compras no prueban una retención
     // emitida. Solo se suman los comprobantes de retención importados, en
     // su fecha de emisión, incluso si sustentan compras de otro período.
-    const redondear = (valor: number) => Math.round((valor + Number.EPSILON) * 100) / 100;
+    const redondear = (valor: Prisma.Decimal) => valor.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+    const saldoIva = ivaVentas.minus(ivaCompras).minus(ivaRetenidoEnVentas);
+    const ivaAPagar = Prisma.Decimal.max(0, saldoIva);
     const totales = {
       totalVentasGravadas: redondear(ventasGravadas),
       totalVentas0: redondear(ventas0),
@@ -78,7 +81,7 @@ export class DeclarationsService {
       totalRetencionesRentaAplicadas: redondear(retRentaAplicada),
     };
 
-    const declaration = await this.prisma.taxDeclaration.upsert({
+    const declaration = await this.versionar(companyId, mes, anio, userId, 'GENERAR_BORRADOR', async tx => tx.taxDeclaration.upsert({
       where: { companyId_mes_anio: { companyId, mes, anio } },
       create: {
         companyId,
@@ -90,8 +93,9 @@ export class DeclarationsService {
         ...totales,
         estado: 'BORRADOR',
         fechaPresentacion: null,
+        fechaGeneracion: new Date(),
       },
-    });
+    }));
 
     await this.audit.registrar({
       userId,
@@ -104,9 +108,9 @@ export class DeclarationsService {
 
     return {
       ...declaration,
-      ivaAPagar104: redondear(Math.max(0, ivaVentas - ivaCompras - ivaRetenidoEnVentas)),
-      totalAPagar104: redondear(Math.max(0, ivaVentas - ivaCompras - ivaRetenidoEnVentas) + retIvaAplicada),
-      creditoTributarioSiguientePeriodo: redondear(Math.max(0, ivaCompras + ivaRetenidoEnVentas - ivaVentas)),
+      ivaAPagar104: redondear(ivaAPagar),
+      totalAPagar104: redondear(ivaAPagar.plus(retIvaAplicada)),
+      creditoTributarioSiguientePeriodo: redondear(Prisma.Decimal.max(0, saldoIva.negated())),
       totalAPagar103: redondear(retRentaAplicada),
       rentaRetenidaEnVentasInformativo: redondear(rentaRetenidaEnVentas),
       alcance: 'PAPEL_TRABAJO_MENSUAL',
@@ -120,13 +124,15 @@ export class DeclarationsService {
 
   async marcarPresentada(companyId: string, mes: number, anio: number, userId: string) {
     this.validarPeriodo(mes, anio);
-    const existente = await this.prisma.taxDeclaration.findUnique({
-      where: { companyId_mes_anio: { companyId, mes, anio } },
-    });
-    if (!existente) throw new NotFoundException('Primero genera el papel de trabajo del período.');
-    const declaration = await this.prisma.taxDeclaration.update({
-      where: { companyId_mes_anio: { companyId, mes, anio } },
-      data: { estado: 'PRESENTADA_LOCAL', fechaPresentacion: new Date() },
+    const declaration = await this.versionar(companyId, mes, anio, userId, 'REGISTRO_MANUAL', async tx => {
+      const existente = await tx.taxDeclaration.findUnique({
+        where: { companyId_mes_anio: { companyId, mes, anio } },
+      });
+      if (!existente) throw new NotFoundException('Primero genera el papel de trabajo del período.');
+      return tx.taxDeclaration.update({
+        where: { companyId_mes_anio: { companyId, mes, anio } },
+        data: { estado: 'PRESENTADA_LOCAL', fechaPresentacion: new Date() },
+      });
     });
 
     await this.audit.registrar({
@@ -140,6 +146,33 @@ export class DeclarationsService {
     });
 
     return { ...declaration, enviadaAlSri: false, mensaje: 'Presentación registrada manualmente. Este sistema no envió la declaración al SRI.' };
+  }
+
+  async historial(companyId: string, mes: number, anio: number) {
+    this.validarPeriodo(mes, anio);
+    return this.prisma.declarationRevision.findMany({
+      where: { declaration: { companyId, mes, anio } },
+      orderBy: { version: 'asc' },
+    });
+  }
+
+  private async versionar<T extends { id: string }>(
+    companyId: string, mes: number, anio: number, actorId: string, action: string,
+    mutation: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(async tx => {
+      // Serializa las revisiones del mismo período, también cuando aún no existe la declaración.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), hashtext(${`${anio}-${mes}`}))`;
+      const previous = await tx.taxDeclaration.findUnique({ where: { companyId_mes_anio: { companyId, mes, anio } } });
+      const result = await mutation(tx);
+      const last = await tx.declarationRevision.findFirst({ where: { declarationId: result.id }, orderBy: { version: 'desc' } });
+      await tx.declarationRevision.create({ data: {
+        declarationId: result.id, version: (last?.version ?? 0) + 1, actorId, action,
+        previous: previous ? JSON.parse(JSON.stringify(previous)) : Prisma.DbNull,
+        snapshot: JSON.parse(JSON.stringify(result)),
+      } });
+      return result;
+    });
   }
 
   private validarPeriodo(mes: number, anio: number) {

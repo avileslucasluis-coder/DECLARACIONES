@@ -1,0 +1,32 @@
+# Los documentos de entrega se conservan fuera del proyecto.
+/Documentacion Word/
+/reportes/
+/Documentos Word.zip
+*.doc
+*.docx
+~$*
+
+# Dependencias, cachés y resultados de compilación locales.
+**/node_modules/
+**/.dart_tool/
+**/build/
+**/dist/
+**/.cache/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/coverage/
+**/.vercel/
+*.log
+
+# Configuración privada y certificados.
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.key
+
+# Archivos del sistema operativo.
+.DS_Store
+Thumbs.db
+Desktop.ini

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 
 export class XmlComprobanteException extends Error {}
@@ -39,6 +40,9 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
   // Si es un XML de autorización del SRI, el comprobante real viene
   // escapado como texto dentro de <comprobante>.
   if (doc.autorizacion?.comprobante) {
+    if (doc.autorizacion.estado && doc.autorizacion.estado !== 'AUTORIZADO') {
+      throw new XmlComprobanteException('El archivo contiene un comprobante no autorizado.');
+    }
     try {
       if (/<!DOCTYPE|<!ENTITY/i.test(doc.autorizacion.comprobante) || XMLValidator.validate(doc.autorizacion.comprobante) !== true) {
         throw new Error('XML interno inválido.');
@@ -55,11 +59,11 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
 
   const tipo = detectarTipo(raiz);
 
-  let baseIva = 0;
-  let base0 = 0;
-  let montoIva = 0;
-  let montoRenta = 0;
-  let total = 0;
+  let baseIva = new Prisma.Decimal(0);
+  let base0 = new Prisma.Decimal(0);
+  let montoIva = new Prisma.Decimal(0);
+  let montoRenta = new Prisma.Decimal(0);
+  let total = new Prisma.Decimal(0);
   let identificacionContraparte = '';
   let razonSocialContraparte = '';
 
@@ -72,15 +76,15 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
     const totalesImpuesto = normalizarLista(nodo[infoKey]?.totalConImpuestos?.totalImpuesto);
     for (const imp of totalesImpuesto) {
       if (String(imp.codigo) !== '2') continue;
-      const base = Number(imp.baseImponible ?? 0);
-      const valor = Number(imp.valor ?? 0);
-      if (valor <= 0) base0 += base;
+      const base = importeDecimal(imp.baseImponible);
+      const valor = importeDecimal(imp.valor);
+      if (valor.isZero()) base0 = base0.plus(base);
       else {
-        baseIva += base;
-        montoIva += valor;
+        baseIva = baseIva.plus(base);
+        montoIva = montoIva.plus(valor);
       }
     }
-    total = Number(nodo[infoKey]?.importeTotal ?? nodo[infoKey]?.valorModificacion ?? baseIva + base0 + montoIva);
+    total = importeDecimal(nodo[infoKey]?.importeTotal ?? nodo[infoKey]?.valorModificacion ?? baseIva.plus(base0).plus(montoIva).toFixed(2));
     identificacionContraparte = String(nodo[infoKey]?.identificacionComprador ?? nodo[infoKey]?.identificacionProveedor ?? '');
     razonSocialContraparte = String(nodo[infoKey]?.razonSocialComprador ?? nodo[infoKey]?.razonSocialProveedor ?? '');
   } else if (tipo === 'RETENCION') {
@@ -89,15 +93,15 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
       ...normalizarLista(nodo.docsSustento?.docSustento).flatMap((doc: any) => normalizarLista(doc.retenciones?.retencion)),
     ];
     for (const imp of impuestos) {
-      const base = Number(imp.baseImponible ?? 0);
-      const valor = Number(imp.valorRetenido ?? 0);
-      if (String(imp.codigo) === '1') montoRenta += valor;
+      const base = importeDecimal(imp.baseImponible);
+      const valor = importeDecimal(imp.valorRetenido);
+      if (String(imp.codigo) === '1') montoRenta = montoRenta.plus(valor);
       else if (String(imp.codigo) === '2') {
-        baseIva += base;
-        montoIva += valor;
+        baseIva = baseIva.plus(base);
+        montoIva = montoIva.plus(valor);
       }
     }
-    total = montoIva + montoRenta;
+    total = montoIva.plus(montoRenta);
     identificacionContraparte = String(nodo.infoCompRetencion?.identificacionSujetoRetenido ?? '');
     razonSocialContraparte = String(nodo.infoCompRetencion?.razonSocialSujetoRetenido ?? '');
   }
@@ -112,7 +116,7 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
     nodo.infoFactura?.fechaEmision ?? nodo.infoCompRetencion?.fechaEmision ?? nodo.infoNotaCredito?.fechaEmision ?? nodo.infoLiquidacionCompra?.fechaEmision ?? '';
   const fechaEmision = parsearFechaSri(fechaStr);
 
-  if (![baseIva, base0, montoIva, montoRenta, total].every((valor) => Number.isFinite(valor) && valor >= 0)) {
+  if (![baseIva, base0, montoIva, montoRenta, total].every((valor) => valor.isFinite() && valor.gte(0) && valor.lte("9999999999.99"))) {
     throw new XmlComprobanteException('El XML contiene importes inválidos.');
   }
 
@@ -124,15 +128,25 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
     rucEmisor,
     razonSocialEmisor: razonSocial,
     fechaEmision,
-    baseImponibleIva: baseIva,
-    baseImponibleIva0: base0,
-    montoIva,
-    montoRentaRetenida: montoRenta,
-    importeTotal: total,
+    baseImponibleIva: baseIva.toNumber(),
+    baseImponibleIva0: base0.toNumber(),
+    montoIva: montoIva.toNumber(),
+    montoRentaRetenida: montoRenta.toNumber(),
+    importeTotal: total.toNumber(),
     identificacionContraparte,
     razonSocialContraparte,
     direccion,
   };
+}
+
+function importeDecimal(raw: unknown): Prisma.Decimal {
+  const text = String(raw ?? '');
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) {
+    throw new XmlComprobanteException('Importe inválido: se requiere un decimal no negativo con máximo dos decimales.');
+  }
+  const value = new Prisma.Decimal(text);
+  if (value.gt('9999999999.99')) throw new XmlComprobanteException('El importe excede la capacidad monetaria del sistema.');
+  return value;
 }
 
 function detectarTipo(raiz: string): ComprobanteParseado['tipoComprobante'] {

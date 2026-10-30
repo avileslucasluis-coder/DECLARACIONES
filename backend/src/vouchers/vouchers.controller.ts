@@ -27,6 +27,6 @@ export class VouchersController {
     @Query('mes') mes?: string,
     @Query('anio') anio?: string,
   ) {
-    return this.vouchers.listar(companyId, mes ? Number(mes) : undefined, anio ? Number(anio) : undefined);
+    return this.vouchers.listar(companyId, mes !== undefined ? Number(mes) : undefined, anio !== undefined ? Number(anio) : undefined);
   }
 }

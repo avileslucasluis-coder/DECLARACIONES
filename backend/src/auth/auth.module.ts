@@ -7,6 +7,9 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { jwtSecret } from '../security/config';
 import { AuthRateGuard } from '../security/auth-rate.guard';
+import { PasswordRecoveryService } from './password-recovery.service';
+import { RecoveryMailService } from './recovery-mail.service';
+import { AdminController } from './admin.controller';
 
 @Module({
   imports: [
@@ -20,8 +23,8 @@ import { AuthRateGuard } from '../security/auth-rate.guard';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, AuthRateGuard],
-  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, AuthRateGuard, PasswordRecoveryService, RecoveryMailService],
+  controllers: [AuthController, AdminController],
   exports: [AuthService],
 })
 export class AuthModule {}

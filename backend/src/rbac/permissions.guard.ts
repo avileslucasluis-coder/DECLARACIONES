@@ -22,20 +22,24 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const permisosRequeridos = this.reflector.get<string[]>(
+    const permisosRequeridos = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,
-      context.getHandler(),
+      [context.getHandler(), context.getClass()],
     );
     if (!permisosRequeridos || permisosRequeridos.length === 0) return true;
 
     const request = context.switchToHttp().getRequest();
     const userId: string | undefined = request.user?.userId;
-    const companyId: string | undefined =
-      request.params?.companyId ?? request.body?.companyId ?? request.query?.companyId;
+    const companyIds: unknown[] = [request.params?.companyId, request.body?.companyId, request.query?.companyId]
+      .filter(value => value !== undefined);
 
     if (!userId) throw new ForbiddenException('No autenticado.');
-    if (!companyId) {
+    if (!companyIds.length || companyIds.some(value => typeof value !== 'string' || !value.trim())) {
       throw new ForbiddenException('La petición debe indicar companyId.');
+    }
+    const companyId = companyIds[0] as string;
+    if (companyIds.some(value => value !== companyId)) {
+      throw new ForbiddenException('Los identificadores de empresa de la petición no coinciden.');
     }
 
     const companyUser = await this.prisma.companyUser.findUnique({

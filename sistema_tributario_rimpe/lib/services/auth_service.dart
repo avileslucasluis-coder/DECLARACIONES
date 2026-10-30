@@ -14,6 +14,7 @@ class AuthService extends ChangeNotifier {
 
   EstadoSesion estado = EstadoSesion.cargando;
   String? email;
+  bool platformAdmin = false;
   bool _disposed = false;
 
   @override
@@ -35,25 +36,36 @@ class AuthService extends ChangeNotifier {
 
   Future<void> _cargarSesionExistente() async {
     final token = await _session.accessToken;
-    estado = token != null ? EstadoSesion.autenticado : EstadoSesion.noAutenticado;
+    if (token != null) {
+      try {
+        final profile = await api.get('/api/auth/me');
+        platformAdmin = profile['platformAdmin'] == true;
+        email = profile['email'] as String?;
+        estado = EstadoSesion.autenticado;
+      } catch (_) { estado = EstadoSesion.noAutenticado; }
+    } else { estado = EstadoSesion.noAutenticado; }
     notifyListeners();
   }
 
   Future<void> login(String correo, String password) async {
-    final data = await api.post('/api/auth/login', body: {'email': correo, 'password': password});
+    final data = await api.post('/api/auth/login', body: {correo.contains('@') ? 'email' : 'ruc': correo, 'password': password});
     await _session.guardar(accessToken: data['accessToken'], refreshToken: data['refreshToken']);
     email = correo;
+    final profile = await api.get('/api/auth/me');
+    platformAdmin = profile['platformAdmin'] == true;
     estado = EstadoSesion.autenticado;
     notifyListeners();
   }
 
-  Future<void> registrar(String correo, String password, String nombre) async {
+  Future<void> registrar(String correo, String password, String nombre, String ruc) async {
     final data = await api.post(
       '/api/auth/register',
-      body: {'email': correo, 'password': password, 'nombre': nombre},
+      body: {'email': correo, 'password': password, 'nombre': nombre, 'ruc': ruc},
     );
     await _session.guardar(accessToken: data['accessToken'], refreshToken: data['refreshToken']);
     email = correo;
+    final profile = await api.get('/api/auth/me');
+    platformAdmin = profile['platformAdmin'] == true;
     estado = EstadoSesion.autenticado;
     notifyListeners();
   }
@@ -73,6 +85,7 @@ class AuthService extends ChangeNotifier {
   Future<void> cerrarSesionLocal() async {
     await _session.limpiar();
     email = null;
+    platformAdmin = false;
     estado = EstadoSesion.noAutenticado;
     notifyListeners();
   }

@@ -1,1 +1,0 @@
-:  C:\\sistema\ tributario\ dayanex\\sistema_tributario_rimpe\\web\\index.html

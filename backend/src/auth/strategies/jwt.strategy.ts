@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 export interface JwtPayload {
   sub: string; // userId
   email: string;
+  sv?: number;
 }
 
 @Injectable()
@@ -23,7 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload) {
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-    if (!user?.activo) throw new UnauthorizedException('Sesión inválida.');
+    if (!user?.activo || (payload.sv ?? 0) !== user.sessionVersion) throw new UnauthorizedException('Sesión inválida.');
     // Lo que se retorna aquí queda disponible como request.user en cada
     // controller protegido con JwtAuthGuard.
     return { userId: payload.sub, email: payload.email };

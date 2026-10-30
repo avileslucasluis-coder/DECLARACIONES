@@ -11,6 +11,7 @@ export class AuthRateGuard implements CanActivate {
     const res = context.switchToHttp().getResponse();
     const action = context.getHandler().name;
     const identities = [`ip:${req.ip ?? req.socket.remoteAddress}`];
+    if (typeof req.body?.ruc === 'string') identities.push(`account:ruc:${req.body.ruc.trim()}`);
     if (typeof req.body?.email === 'string') identities.push(`account:${req.body.email.trim().toLowerCase()}`);
     for (const identity of identities) {
       const key = createHmac('sha256', process.env.JWT_SECRET!).update(`${action}:${identity}`).digest('hex');

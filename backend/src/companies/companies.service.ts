@@ -11,9 +11,8 @@ export class CompaniesService {
   ) {}
 
   /// Lista únicamente las empresas a las que el usuario tiene acceso —
-  /// nunca todas las empresas de la plataforma. Este es el punto central
-  /// del aislamiento multiempresa a nivel de aplicación (junto con RLS
-  /// en la base, que se agrega en prisma/rls.sql).
+  /// nunca todas las empresas de la plataforma. El aislamiento se aplica
+  /// mediante filtros y permisos; no presupone políticas RLS en la base.
   async listarParaUsuario(userId: string) {
     const companyUsers = await this.prisma.companyUser.findMany({
       where: { userId },

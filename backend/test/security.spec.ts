@@ -57,6 +57,6 @@ describe('Controles de seguridad', () => {
   });
   it('cierra el registro público en producción por defecto', async () => {
     process.env.NODE_ENV = 'production'; delete process.env.ALLOW_PUBLIC_REGISTRATION;
-    await expect(new AuthService({} as any, {} as any, {} as any).register({ email: 'a@example.com', password: 'segura-larga-123', nombre: 'Prueba' })).rejects.toThrow('deshabilitado');
+    await expect(new AuthService({} as any, {} as any, {} as any).register({ ruc: '0999999999001', email: 'a@example.com', password: 'segura-larga-123', nombre: 'Prueba' })).rejects.toThrow('deshabilitado');
   });
 });

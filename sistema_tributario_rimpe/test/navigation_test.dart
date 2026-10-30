@@ -11,6 +11,8 @@ import 'package:sistema_tributario_rimpe/utils/app_theme.dart';
 
 class _AuthPrueba implements AuthService {
   @override
+  bool platformAdmin = false;
+  @override
   final ApiClient api;
   _AuthPrueba(this.api);
 

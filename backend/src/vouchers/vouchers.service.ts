@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { parseComprobanteXml, XmlComprobanteException } from './xml-parser.util';
@@ -47,6 +48,12 @@ export class VouchersService {
         montoRentaRetenida: parseado.montoRentaRetenida,
         importeTotal: parseado.importeTotal,
       },
+    }).catch((error: unknown) => {
+      // El índice único también protege las importaciones concurrentes.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Este comprobante ya fue importado (clave de acceso duplicada).');
+      }
+      throw error;
     });
 
     // Una compra no demuestra que exista una retención ni determina sus
@@ -68,14 +75,19 @@ export class VouchersService {
   }
 
   async listar(companyId: string, mes?: number, anio?: number) {
+    const filtrarPeriodo = mes !== undefined || anio !== undefined;
+    if (filtrarPeriodo && (!Number.isInteger(mes) || !Number.isInteger(anio) ||
+      mes! < 1 || mes! > 12 || anio! < 2000 || anio! > 2100)) {
+      throw new BadRequestException('Indica mes del 1 al 12 y año entre 2000 y 2100 juntos.');
+    }
     const vouchers = await this.prisma.voucher.findMany({
       where: {
         companyId,
-        ...(mes && anio
+        ...(filtrarPeriodo
           ? {
               fechaEmision: {
-                gte: new Date(anio, mes - 1, 1),
-                lt: new Date(anio, mes, 1),
+                gte: new Date(anio!, mes! - 1, 1),
+                lt: new Date(anio!, mes!, 1),
               },
             }
           : {}),

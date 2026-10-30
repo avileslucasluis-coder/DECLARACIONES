@@ -1,5 +1,11 @@
 // Prueba la API real con datos sintéticos y elimina solamente esos datos al terminar.
-require('dotenv').config();
+// Nunca tomar silenciosamente la conexión productiva del archivo .env.
+const testDb = new URL(process.env.DATABASE_URL ?? 'http://invalid');
+const testApi = new URL(process.env.TEST_API_URL ?? 'http://invalid');
+if (!['localhost', '127.0.0.1'].includes(testDb.hostname) || testDb.pathname !== '/dayanex_test' ||
+    !['localhost', '127.0.0.1'].includes(testApi.hostname) || process.env.NODE_ENV !== 'test') {
+  throw new Error('Esta prueba requiere NODE_ENV=test, DATABASE_URL local /dayanex_test y TEST_API_URL local. Usa npm run test:integration para preparar un entorno aislado.');
+}
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { PrismaClient } = require('@prisma/client');
@@ -112,6 +118,7 @@ main().catch((error) => { console.error(error.message); process.exitCode = 1; })
       const empresas = await prisma.company.findMany({ where: { companyUsers: { some: { userId: user.id } } } });
       const ids = empresas.map((empresa) => empresa.id);
       await prisma.auditLog.deleteMany({ where: { OR: [{ userId: user.id }, { companyId: { in: ids } }] } });
+      await prisma.declarationRevision.deleteMany({ where: { declaration: { companyId: { in: ids } } } });
       await prisma.company.deleteMany({ where: { id: { in: ids } } });
       await prisma.user.delete({ where: { id: user.id } });
     }

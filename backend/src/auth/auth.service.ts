@@ -1,4 +1,5 @@
-import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
@@ -32,7 +33,11 @@ export class AuthService {
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
 
     const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash, nombre: dto.nombre },
+      data: { ruc: dto.ruc, email: dto.email, passwordHash, nombre: dto.nombre },
+    }).catch(error => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+        throw new ConflictException('Ya existe una cuenta con ese RUC o correo.');
+      throw error;
     });
 
     await this.audit.registrar({
@@ -42,11 +47,12 @@ export class AuthService {
       resultado: 'OK',
     });
 
-    return this.emitirTokens(user.id, user.email);
+    return this.emitirTokens(user.id, user.email, user.sessionVersion);
   }
 
   async login(dto: LoginDto, ip?: string) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (Boolean(dto.ruc) === Boolean(dto.email)) throw new BadRequestException('Indica RUC o correo, no ambos.');
+    const user = await this.prisma.user.findUnique({ where: dto.ruc ? { ruc: dto.ruc } : { email: dto.email } });
 
     // Mismo mensaje de error exista o no el usuario: evita filtrar qué
     // correos están registrados (enumeración de usuarios).
@@ -84,7 +90,7 @@ export class AuthService {
       ip,
     });
 
-    return this.emitirTokens(user.id, user.email);
+    return this.emitirTokens(user.id, user.email, user.sessionVersion);
   }
 
   async refresh(refreshTokenPlano: string) {
@@ -104,9 +110,9 @@ export class AuthService {
     if (consumed.count !== 1) throw new UnauthorizedException('Sesión inválida o expirada.');
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: registro.userId } });
-    if (!user.activo) throw new UnauthorizedException('Sesión inválida.');
+    if (!user.activo || (registro.sessionVersion ?? 0) !== (user.sessionVersion ?? 0)) throw new UnauthorizedException('Sesión inválida.');
     await this.audit.registrar({ userId: user.id, accion: 'REFRESH', modulo: 'AUTH', resultado: 'OK' });
-    return this.emitirTokens(user.id, user.email);
+    return this.emitirTokens(user.id, user.email, user.sessionVersion);
   }
 
   async logout(refreshTokenPlano: string) {
@@ -119,9 +125,9 @@ export class AuthService {
     if (token) await this.audit.registrar({ userId: token.userId, accion: 'LOGOUT', modulo: 'AUTH', resultado: 'OK' });
   }
 
-  private async emitirTokens(userId: string, email: string) {
+  private async emitirTokens(userId: string, email: string, sessionVersion = 0) {
     const accessToken = await this.jwt.signAsync(
-      { sub: userId, email },
+      { sub: userId, email, sv: sessionVersion },
       { expiresIn: ACCESS_TOKEN_TTL },
     );
 
@@ -132,6 +138,7 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: {
         userId,
+        sessionVersion,
         tokenHash: this.hashToken(refreshTokenPlano),
         expiraEn,
       },

@@ -7,6 +7,7 @@ import 'services/declaration_api_service.dart';
 import 'services/tax_obligations_service.dart';
 import 'services/ats_api_service.dart';
 import 'screens/login_screen.dart';
+import 'screens/admin_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/companies_screen.dart';
 import 'screens/xml_import_screen.dart';
@@ -87,17 +88,19 @@ class _RootShellState extends State<RootShell> {
   late final AtsApiService _ats = AtsApiService(widget.auth.api);
   late final SriApiService _sri = SriApiService(widget.auth.api);
 
-  static const _destinos = [
-    _Destino('Panel', Icons.dashboard_outlined, Icons.dashboard),
-    _Destino('Empresas', Icons.domain_outlined, Icons.domain),
-    _Destino('Importar XML', Icons.upload_file_outlined, Icons.upload_file),
-    _Destino('Retenciones', Icons.receipt_long_outlined, Icons.receipt_long),
-    _Destino('Declaraciones', Icons.fact_check_outlined, Icons.fact_check),
-    _Destino('Obligaciones', Icons.rule_folder_outlined, Icons.rule_folder),
-    _Destino('SRI · Pruebas', Icons.cloud_upload_outlined, Icons.cloud_upload),
+  List<_Destino> get _destinos => [
+    if (widget.auth.platformAdmin) const _Destino('Administración', Icons.admin_panel_settings_outlined, Icons.admin_panel_settings),
+    const _Destino('Panel', Icons.dashboard_outlined, Icons.dashboard),
+    const _Destino('Empresas', Icons.domain_outlined, Icons.domain),
+    const _Destino('Importar XML', Icons.upload_file_outlined, Icons.upload_file),
+    const _Destino('Retenciones', Icons.receipt_long_outlined, Icons.receipt_long),
+    const _Destino('Declaraciones', Icons.fact_check_outlined, Icons.fact_check),
+    const _Destino('Obligaciones', Icons.rule_folder_outlined, Icons.rule_folder),
+    const _Destino('SRI · Pruebas', Icons.cloud_upload_outlined, Icons.cloud_upload),
   ];
 
   List<Widget> get _paginas => [
+        if (widget.auth.platformAdmin) AdminScreen(api: widget.auth.api),
         DashboardScreen(companies: _companies, vouchers: _vouchers),
         CompaniesScreen(companies: _companies),
         XmlImportScreen(companies: _companies, vouchers: _vouchers),

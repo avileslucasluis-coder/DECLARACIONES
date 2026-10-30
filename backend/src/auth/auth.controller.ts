@@ -1,14 +1,30 @@
-import { Body, Controller, Ip, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Req, Ip, Post, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PrismaService } from '../prisma/prisma.service';
 import { AuthRateGuard } from '../security/auth-rate.guard';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, RefreshDto, ForgotPasswordDto, ResetPasswordDto } from './dto/auth.dto';
+import { PasswordRecoveryService } from './password-recovery.service';
 
 @ApiTags('auth')
 @Controller('api/auth')
 @UseGuards(AuthRateGuard)
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly recovery: PasswordRecoveryService, private readonly prisma: PrismaService) {}
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@Req() req: any) {
+    return this.prisma.user.findUnique({ where: { id: req.user.userId },
+      select: { email: true, ruc: true, nombre: true, platformAdmin: true } });
+  }
+
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) { return this.recovery.request(dto.email); }
+
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) { return this.recovery.reset(dto.token, dto.password); }
 
   @Post('register')
   @ApiOperation({ summary: 'Crea una cuenta de usuario (sin empresa asociada todavía).' })

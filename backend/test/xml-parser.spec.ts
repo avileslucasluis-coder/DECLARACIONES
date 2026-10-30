@@ -11,6 +11,20 @@ function factura(comprador = ruc, fecha = '15/08/2026') {
 }
 
 describe('Importación de XML', () => {
+  it('rechaza una envoltura con estado NO AUTORIZADO', () => {
+    const xml = `<autorizacion><estado>NO AUTORIZADO</estado><comprobante><![CDATA[${factura()}]]></comprobante></autorizacion>`;
+    expect(() => parseComprobanteXml(xml, ruc)).toThrow(XmlComprobanteException);
+  });
+  it.each(['-1', 'NaN', 'Infinity', '1e2', '0x10', '', '1.005', '10000000000'])('rechaza el importe %s antes de persistir', (valor) => {
+    expect(() => parseComprobanteXml(factura().replace('<valor>15</valor>', `<valor>${valor}</valor>`), ruc))
+      .toThrow(XmlComprobanteException);
+  });
+
+  it('suma centavos exactamente durante la importación', () => {
+    const xml = factura().replace('<valor>15</valor>', '<valor>0.10</valor>')
+      .replace('</totalConImpuestos>', '<totalImpuesto><codigo>2</codigo><baseImponible>1</baseImponible><valor>0.20</valor></totalImpuesto></totalConImpuestos>');
+    expect(parseComprobanteXml(xml, ruc).montoIva).toBe(0.3);
+  });
   it('clasifica la compra y suma únicamente el impuesto de IVA', () => {
     const resultado = parseComprobanteXml(factura(), ruc);
     expect(resultado.direccion).toBe('COMPRA');

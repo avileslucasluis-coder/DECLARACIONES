@@ -13,6 +13,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _ruc = TextEditingController();
+  bool _accesoAnterior = false;
   final _correo = TextEditingController();
   final _password = TextEditingController();
   final _nombre = TextEditingController();
@@ -20,9 +22,38 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _cargando = false;
   String? _error;
 
+  Future<void> _recuperar() async {
+    final controller = TextEditingController(text: _correo.text.trim());
+    final correo = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Recuperar contraseña'),
+      content: TextField(controller: controller, keyboardType: TextInputType.emailAddress,
+        decoration: const InputDecoration(labelText: 'Correo de tu cuenta')),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Enviar'))],
+    ));
+    if (correo == null || !mounted) return;
+    if (!correo.contains('@')) {
+      setState(() => _error = 'Escribe tu correo para recuperar el acceso.');
+      return;
+    }
+    setState(() { _cargando = true; _error = null; });
+    try {
+      final respuesta = await widget.auth.api.post('/api/auth/forgot-password', body: {'email': correo});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(respuesta['message'] as String)));
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.mensaje);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'No se pudo conectar. Inténtalo de nuevo.');
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
+  }
+
   @override
   void dispose() {
     _correo.dispose();
+    _ruc.dispose();
     _password.dispose();
     _nombre.dispose();
     super.dispose();
@@ -36,9 +67,9 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       if (_modoRegistro) {
-        await widget.auth.registrar(_correo.text.trim(), _password.text, _nombre.text.trim());
+        await widget.auth.registrar(_correo.text.trim(), _password.text, _nombre.text.trim(), _ruc.text.trim());
       } else {
-        await widget.auth.login(_correo.text.trim(), _password.text);
+        await widget.auth.login(_accesoAnterior ? _correo.text.trim() : _ruc.text.trim(), _password.text);
       }
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -81,6 +112,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
                   ],
+                  if (_modoRegistro || !_accesoAnterior) ...[
+                    TextFormField(
+                      controller: _ruc,
+                      decoration: const InputDecoration(labelText: 'RUC', helperText: 'Usa tu contraseña de Dayanex, no la del SRI.'),
+                      keyboardType: TextInputType.number,
+                      maxLength: 13,
+                      validator: (v) => RegExp(r'^\d{13}$').hasMatch(v ?? '') ? null : 'Ingresa los 13 dígitos del RUC',
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_modoRegistro || _accesoAnterior)
                   TextFormField(
                     controller: _correo,
                     decoration: const InputDecoration(labelText: 'Correo electrónico'),
@@ -115,6 +157,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  if (!_modoRegistro)
+                    TextButton(
+                      onPressed: _cargando ? null : _recuperar,
+                      child: const Text('Olvidé mi contraseña'),
+                    ),
+                  if (!_modoRegistro) TextButton(
+                    onPressed: _cargando ? null : () => setState(() => _accesoAnterior = !_accesoAnterior),
+                    child: Text(_accesoAnterior ? 'Ingresar con RUC' : 'Cuenta anterior: ingresar con correo'),
+                  ),
                   TextButton(
                     onPressed: _cargando ? null : () => setState(() => _modoRegistro = !_modoRegistro),
                     child: Text(_modoRegistro
