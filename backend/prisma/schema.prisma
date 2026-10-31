@@ -113,6 +113,14 @@ model RolePermission {
 // ---------------- Empresas ----------------
 
 model Company {
+  realizaVentasGravadasIva Boolean?
+  realizaVentasTarifa0 Boolean?
+  realizaOperacionesExterior Boolean?
+  superaFraccionBasicaRenta Boolean?
+  realizaActividadesExcluidasRimpe Boolean?
+  tipoPersona String?
+  periodicidadIvaDeclarada String?
+  deberesFormalesRegistrados String[] @default([])
   id                       String   @id @default(uuid())
   ruc                      String   @unique
   razonSocial              String   @map("razon_social")
@@ -206,6 +214,7 @@ model TaxRule {
 }
 
 model TaxObligationInstance {
+  revisionVencimiento Json? @map("revision_vencimiento")
   id               String    @id @default(uuid())
   companyId        String    @map("company_id")
   company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -227,6 +236,9 @@ model TaxObligationInstance {
 // ---------------- Comprobantes, retenciones, declaraciones ----------------
 
 model Voucher {
+  fechaRegistroAts        DateTime? @map("fecha_registro_ats")
+  @@index([companyId, fechaRegistroAts], map: "vouchers_company_accounting_date")
+  atsRevision             Json? @map("ats_revision")
   id                      String   @id @default(uuid())
   companyId               String   @map("company_id")
   company                 Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -270,6 +282,10 @@ model Withholding {
 }
 
 model TaxDeclaration {
+  ajustes                       Json?
+  liquidacion                   Json?
+  filings                       TaxFiling[]
+  periodicidad                  String @default("MENSUAL")
   id                            String    @id @default(uuid())
   companyId                     String    @map("company_id")
   company                       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -289,7 +305,7 @@ model TaxDeclaration {
   fechaPresentacion              DateTime? @map("fecha_presentacion")
   revisions                     DeclarationRevision[]
 
-  @@unique([companyId, mes, anio])
+  @@unique([companyId, mes, anio, periodicidad])
   @@map("tax_declarations")
 }
 
@@ -325,6 +341,25 @@ model AtsReport {
 
   @@unique([companyId, mes, anio])
   @@map("ats_reports")
+}
+
+model TaxFiling {
+  formulario String
+  id String @id @default(uuid())
+  declarationId String @map("declaration_id")
+  declaration TaxDeclaration @relation(fields: [declarationId], references: [id], onDelete: Restrict)
+  revision Int
+  tipo String
+  numero String
+  fecha DateTime
+  valor Decimal @db.Decimal(12,2)
+  actorId String @map("actor_id")
+  observacion String
+  archivoCifrado String? @map("archivo_cifrado")
+  hashArchivo String? @map("hash_archivo")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([declarationId, tipo, numero])
+  @@map("tax_filings")
 }
 
 // ---------------- Auditoría ----------------

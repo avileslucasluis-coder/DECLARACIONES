@@ -14,7 +14,10 @@
     "seed": "ts-node prisma/seed.ts",
     "test": "jest",
     "test:smoke": "node scripts/smoke-test.cjs",
-    "test:integration": "node scripts/integration-isolated.cjs"
+    "test:integration": "node scripts/integration-isolated.cjs",
+    "check:production": "node scripts/preflight-production.cjs",
+    "check:deployment": "node scripts/check-deployment.cjs",
+    "backup:verify": "node scripts/verify-backup.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -38,7 +41,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "xml-crypto": "^6.4.0",
-    "xmlbuilder2": "^4.0.3"
+    "xmlbuilder2": "^4.0.3",
+    "xmllint-wasm": "5.3.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",

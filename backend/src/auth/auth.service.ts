@@ -14,6 +14,25 @@ const REFRESH_TOKEN_TTL_DIAS = 30;
 
 @Injectable()
 export class AuthService {
+  async completeIdentity(userId: string, identity: string) {
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user?.activo || /^(?:[0-9]{10}|[0-9]{13})$/.test(user.ruc ?? ''))
+          throw new ConflictException('La cuenta ya tiene una identificación o no está activa.');
+        const changed = await tx.user.updateMany({
+          where: { id: userId, activo: true, ruc: user.ruc }, data: { ruc: identity },
+        });
+        if (changed.count !== 1) throw new ConflictException('La cuenta ya tiene una identificación.');
+        await this.audit.registrar({ userId, accion: 'COMPLETAR_IDENTIFICACION', modulo: 'AUTH', resultado: 'OK' }, tx);
+        return { ruc: identity };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
+        throw new ConflictException('Ya existe una cuenta con esa cédula o RUC.');
+      throw error;
+    }
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -36,7 +55,7 @@ export class AuthService {
       data: { ruc: dto.ruc, email: dto.email, passwordHash, nombre: dto.nombre },
     }).catch(error => {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')
-        throw new ConflictException('Ya existe una cuenta con ese RUC o correo.');
+        throw new ConflictException('Ya existe una cuenta con esa cédula, RUC o correo.');
       throw error;
     });
 
@@ -51,7 +70,7 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
-    if (Boolean(dto.ruc) === Boolean(dto.email)) throw new BadRequestException('Indica RUC o correo, no ambos.');
+    if (Boolean(dto.ruc) === Boolean(dto.email)) throw new BadRequestException('Indica cédula, RUC o correo en un solo campo.');
     const user = await this.prisma.user.findUnique({ where: dto.ruc ? { ruc: dto.ruc } : { email: dto.email } });
 
     // Mismo mensaje de error exista o no el usuario: evita filtrar qué

@@ -25,6 +25,9 @@
 *.p12
 *.pfx
 *.key
+*.dump
+*.enc
+*.partial
 
 # Archivos del sistema operativo.
 .DS_Store

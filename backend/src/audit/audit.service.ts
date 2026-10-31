@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export function redactAudit(value: unknown): unknown {
@@ -28,8 +29,8 @@ export interface RegistroAuditoria {
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async registrar(evento: RegistroAuditoria): Promise<void> {
-    await this.prisma.auditLog.create({
+  async registrar(evento: RegistroAuditoria, tx?: Prisma.TransactionClient): Promise<void> {
+    await (tx ?? this.prisma).auditLog.create({
       data: {
         userId: evento.userId,
         companyId: evento.companyId,

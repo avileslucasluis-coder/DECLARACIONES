@@ -5,8 +5,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SignatureService } from '../signature/signature.service';
 import { AuditService } from '../audit/audit.service';
 import { SriClientService } from './sri-client.service';
-import { MAX_XML_BYTES, validarXmlPruebas } from './sri-xml';
+import { MAX_XML_BYTES, validarXmlComprobante } from './sri-xml';
 import { Prisma } from '@prisma/client';
+import { assertSriProductionEnabled, authorizationEnvironment, sriEnvironment, xmlEnvironmentCode } from './sri-environment';
 
 const resumen = {
   id: true, companyId: true, claveAcceso: true, ambiente: true, tipoComprobante: true,
@@ -30,11 +31,13 @@ export class SriService {
   }
 
   async preparar(companyId: string, xml: string, p12Base64: string, clave: string, userId: string) {
+    const environment = sriEnvironment();
+    assertSriProductionEnabled();
     const empresa = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!empresa) throw new NotFoundException('Empresa no encontrada.');
-    const datos = validarXmlPruebas(xml, empresa.ruc);
+    const datos = validarXmlComprobante(xml, empresa.ruc, xmlEnvironmentCode(environment));
     const existente = await this.prisma.electronicDocument.findUnique({
-      where: { companyId_ambiente_claveAcceso: { companyId, ambiente: '1', claveAcceso: datos.claveAcceso } },
+      where: { companyId_ambiente_claveAcceso: { companyId, ambiente: datos.ambiente, claveAcceso: datos.claveAcceso } },
     });
     if (existente && !['DEVUELTA', 'NO_AUTORIZADO'].includes(existente.estado)) {
       throw new ConflictException('La clave ya está registrada. Consulta su estado; no se firmará ni enviará por duplicado.');
@@ -58,10 +61,10 @@ export class SriService {
           id = (await tx.electronicDocument.create({ data })).id;
         }
         await tx.auditLog.create({ data: {
-          userId, companyId, modulo: 'SRI', accion: 'FIRMAR_COMPROBANTE_PRUEBAS', registroId: id, resultado: 'OK',
+          userId, companyId, modulo: 'SRI', accion: `FIRMAR_COMPROBANTE_${environment}`, registroId: id, resultado: 'OK',
           // Conserva la versión rechazada para trazabilidad; nunca contiene el PKCS12 ni su contraseña.
           valorAnterior: existente ? { hashXml: existente.hashXml, xmlFirmado: existente.xmlFirmado, estado: existente.estado } : undefined,
-          valorNuevo: { claveAcceso: datos.claveAcceso, hashXml, ambiente: '1' },
+          valorNuevo: { claveAcceso: datos.claveAcceso, hashXml, ambiente: datos.ambiente },
         } });
         return tx.electronicDocument.findUniqueOrThrow({ where: { id }, select: resumen });
       });
@@ -73,13 +76,15 @@ export class SriService {
   }
 
   async enviar(companyId: string, id: string, userId: string) {
+    assertSriProductionEnabled();
     const doc = await this.detalle(companyId, id);
+    if (doc.ambiente !== xmlEnvironmentCode(sriEnvironment())) throw new ConflictException('El comprobante pertenece a otro ambiente SRI. No se enviará al ambiente configurado.');
     const lock = await this.prisma.electronicDocument.updateMany({
       where: { id, companyId, estado: 'FIRMADO', updatedAt: doc.updatedAt }, data: { estado: 'ENVIANDO', ultimoError: null },
     });
     if (lock.count !== 1) throw new ConflictException('Solo se envía un comprobante FIRMADO. Consulta la autorización si ya se intentó enviar.');
     try {
-      await this.audit.registrar({ userId, companyId, modulo: 'SRI', accion: 'ENVIAR_COMPROBANTE_PRUEBAS', registroId: id, resultado: 'OK', valorNuevo: { claveAcceso: doc.claveAcceso } });
+      await this.audit.registrar({ userId, companyId, modulo: 'SRI', accion: `ENVIAR_COMPROBANTE_${sriEnvironment()}`, registroId: id, resultado: 'OK', valorNuevo: { claveAcceso: doc.claveAcceso } });
       const respuesta = await this.client.recibir(doc.xmlFirmado);
       if (respuesta.comprobantes.some((c) => c.claveAcceso && c.claveAcceso !== doc.claveAcceso)) throw new BadGatewayException('El SRI devolvió una clave distinta a la enviada.');
       const pendiente = respuesta.comprobantes.some((c) => c.mensajes.some((m) => [43, 70].includes(Number(m.identificador))));
@@ -97,6 +102,7 @@ export class SriService {
   async consultar(companyId: string, id: string, userId: string) {
     const doc = await this.detalle(companyId, id);
     if (doc.estado === 'AUTORIZADO') return this.prisma.electronicDocument.findUniqueOrThrow({ where: { id }, select: resumen });
+    if (doc.ambiente !== xmlEnvironmentCode(sriEnvironment())) throw new ConflictException('El comprobante pertenece a otro ambiente SRI. No se consultará en el ambiente configurado.');
     if (['ENVIANDO', 'CONSULTANDO'].includes(doc.estado) && Date.now() - doc.updatedAt.getTime() < 120000) {
       throw new ConflictException('Hay una operación en curso. Espera a que finalice.');
     }
@@ -111,17 +117,18 @@ export class SriService {
       let xmlAutorizado: string | undefined;
       if (autorizado) {
         const empresa = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
-        const identidad = validarXmlPruebas(autorizado.comprobante, empresa.ruc);
+        const environment = sriEnvironment();
+        const identidad = validarXmlComprobante(autorizado.comprobante, empresa.ruc, xmlEnvironmentCode(environment));
         if (identidad.claveAcceso !== doc.claveAcceso || autorizado.numeroAutorizacion !== doc.claveAcceso ||
-            !['PRUEBAS', '1'].includes(autorizado.ambiente.toUpperCase()) || !autorizado.fechaAutorizacion ||
-            Number.isNaN(Date.parse(autorizado.fechaAutorizacion))) throw new BadGatewayException('Los datos autorizados no corresponden al comprobante de pruebas.');
+            !authorizationEnvironment(environment).includes(autorizado.ambiente.toUpperCase()) || !autorizado.fechaAutorizacion ||
+            Number.isNaN(Date.parse(autorizado.fechaAutorizacion))) throw new BadGatewayException('Los datos autorizados no corresponden al ambiente SRI configurado.');
         xmlAutorizado = create({ version: '1.0', encoding: 'UTF-8' }).ele('autorizacion')
           .ele('estado').txt('AUTORIZADO').up().ele('numeroAutorizacion').txt(autorizado.numeroAutorizacion).up()
           .ele('fechaAutorizacion').txt(autorizado.fechaAutorizacion).up().ele('ambiente').txt(autorizado.ambiente).up()
           .ele('comprobante').dat(autorizado.comprobante).up().ele('mensajes').up().end({ prettyPrint: false });
       }
       const estado = autorizado ? 'AUTORIZADO' : rechazo ? 'NO_AUTORIZADO' : doc.estado === 'FIRMADO' ? 'FIRMADO' : doc.estado === 'DEVUELTA' ? 'DEVUELTA' : 'EN_PROCESO';
-      await this.audit.registrar({ userId, companyId, modulo: 'SRI', accion: 'CONSULTAR_AUTORIZACION_PRUEBAS', registroId: id, resultado: 'OK', valorNuevo: { estado } });
+      await this.audit.registrar({ userId, companyId, modulo: 'SRI', accion: `CONSULTAR_AUTORIZACION_${sriEnvironment()}`, registroId: id, resultado: 'OK', valorNuevo: { estado } });
       return await this.prisma.electronicDocument.update({ where: { id }, data: {
         estado, xmlAutorizado, ultimoError: null,
         respuestaAutorizacion: { claveAcceso: respuesta.claveAcceso, autorizaciones: respuesta.autorizaciones.map(({ comprobante, ...a }) => a) },

@@ -7,6 +7,7 @@ import 'services/declaration_api_service.dart';
 import 'services/tax_obligations_service.dart';
 import 'services/ats_api_service.dart';
 import 'screens/login_screen.dart';
+import 'screens/complete_identity_screen.dart';
 import 'screens/admin_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/companies_screen.dart';
@@ -52,6 +53,7 @@ class _SistemaTributarioAppState extends State<SistemaTributarioApp> {
       home: switch (_auth.estado) {
         EstadoSesion.cargando => const _PantallaCarga(),
         EstadoSesion.noAutenticado => LoginScreen(auth: _auth),
+        EstadoSesion.completarIdentificacion => CompleteIdentityScreen(auth: _auth),
         EstadoSesion.autenticado => RootShell(auth: _auth),
       },
     );

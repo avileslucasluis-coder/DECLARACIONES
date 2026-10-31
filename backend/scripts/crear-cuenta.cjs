@@ -8,7 +8,7 @@ async function createAccount(input) {
     throw new Error('Usa la conexion de Neon con sslmode=require y sslaccept=strict.');
   }
   const ruc = String(input.ruc || '').trim();
-  if (!/^[0-9]{13}$/.test(ruc)) throw new Error('RUC invalido: se requieren 13 digitos.');
+  if (!/^(?:[0-9]{10}|[0-9]{13})$/.test(ruc)) throw new Error('Identificacion invalida: cedula de 10 digitos o RUC de 13 digitos.');
   const email = String(input.email || '').trim();
   const nombre = String(input.nombre || '').trim();
   const password = String(input.password || '');
@@ -22,7 +22,7 @@ async function createAccount(input) {
     }
     const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
     await prisma.user.create({ data: { ruc, email, nombre, passwordHash } });
-    console.log('Cuenta creada correctamente. Ya puedes iniciar sesion con tu RUC y clave.');
+    console.log('Cuenta creada correctamente. Ya puedes iniciar sesion con tu cedula o RUC y clave.');
   } finally {
     await prisma.$disconnect();
   }
@@ -35,7 +35,7 @@ if (require.main === module) {
   process.stdin.on('end', async () => {
     try { await createAccount(JSON.parse(data)); }
     catch (error) {
-      const safe = ['RUC invalido', 'Usa la conexion', 'Correo invalido', 'El nombre debe', 'La clave debe', 'Ese correo ya'];
+      const safe = ['Identificacion invalida', 'Usa la conexion', 'Correo invalido', 'El nombre debe', 'La clave debe', 'Ese correo ya'];
       console.error(safe.some(prefix => error.message.startsWith(prefix)) ? error.message : 'No se pudo crear la cuenta. Revisa la conexion, la clave de Neon y las migraciones.');
       process.exitCode = 1;
     }

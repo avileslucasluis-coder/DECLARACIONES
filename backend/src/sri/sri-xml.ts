@@ -21,7 +21,7 @@ export function digitoVerificador(valor: string): string {
 }
 
 /** Validación previa local. La estructura XSD y las reglas del emisor las valida el SRI. */
-export function validarXmlPruebas(xml: string, rucEmpresa: string) {
+export function validarXmlComprobante(xml: string, rucEmpresa: string, ambienteEsperado: '1' | '2') {
   if (!xml || Buffer.byteLength(xml, 'utf8') > MAX_XML_BYTES) {
     throw new BadRequestException('El XML debe contener como máximo 320 KB.');
   }
@@ -40,12 +40,15 @@ export function validarXmlPruebas(xml: string, rucEmpresa: string) {
   if (!info || Array.isArray(info) || info.ruc !== rucEmpresa) {
     throw new BadRequestException('El RUC emisor debe coincidir con la empresa seleccionada.');
   }
-  if (info.ambiente !== '1') throw new BadRequestException('Este módulo está habilitado exclusivamente para el ambiente de PRUEBAS (1).');
+  if (info.ambiente !== ambienteEsperado) {
+    const nombre = ambienteEsperado === '1' ? 'PRUEBAS (1)' : 'PRODUCCIÓN (2)';
+    throw new BadRequestException(`El XML no corresponde al ambiente SRI ${nombre}.`);
+  }
   const clave = String(info.claveAcceso ?? '');
   if (!/^\d{49}$/.test(clave) || digitoVerificador(clave.slice(0, 48)) !== clave[48]) {
     throw new BadRequestException('Clave de acceso inválida: se requieren 49 dígitos y un verificador correcto.');
   }
-  if (info.codDoc !== tipo.codigo || clave.slice(8, 10) !== tipo.codigo || clave.slice(10, 23) !== rucEmpresa || clave[23] !== '1' ||
+  if (info.codDoc !== tipo.codigo || clave.slice(8, 10) !== tipo.codigo || clave.slice(10, 23) !== rucEmpresa || clave[23] !== ambienteEsperado ||
       !/^\d{3}$/.test(info.estab) || !/^\d{3}$/.test(info.ptoEmi) || !/^\d{9}$/.test(info.secuencial) ||
       clave.slice(24, 30) !== info.estab + info.ptoEmi || clave.slice(30, 39) !== info.secuencial ||
       info.tipoEmision !== '1' || clave[47] !== '1') {
@@ -59,5 +62,8 @@ export function validarXmlPruebas(xml: string, rucEmpresa: string) {
       fechaUtc.getUTCFullYear() !== +partes[3] || clave.slice(0, 8) !== partes[1] + partes[2] + partes[3]) {
     throw new BadRequestException('La fecha del comprobante es inválida o no coincide con la clave de acceso.');
   }
-  return { claveAcceso: clave, ambiente: '1', tipoComprobante: raiz };
+  return { claveAcceso: clave, ambiente: ambienteEsperado, tipoComprobante: raiz };
 }
+
+/** Compatibilidad para los flujos y pruebas de certificación existentes. */
+export function validarXmlPruebas(xml: string, rucEmpresa: string) { return validarXmlComprobante(xml, rucEmpresa, '1'); }

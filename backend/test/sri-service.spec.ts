@@ -28,6 +28,14 @@ describe('Ciclo persistente SRI con respuestas simuladas', () => {
     await expect(service.enviar('otra-empresa', 'documento', 'usuario')).rejects.toThrow('no encontrado');
     expect(client.recibir).not.toHaveBeenCalled();
   });
+  it('no envía ni consulta un documento de otro ambiente', async () => {
+    doc.ambiente = '2';
+    await expect(service.enviar('empresa', 'documento', 'usuario')).rejects.toThrow('otro ambiente');
+    await expect(service.consultar('empresa', 'documento', 'usuario')).rejects.toThrow('otro ambiente');
+    expect(client.recibir).not.toHaveBeenCalled();
+    expect(client.consultar).not.toHaveBeenCalled();
+    expect(doc.estado).toBe('FIRMADO');
+  });
   it('una recepción exitosa no marca autorizado ni permite reenvío', async () => {
     client.recibir.mockResolvedValue({ estado: 'RECIBIDA', comprobantes: [] });
     expect((await service.enviar('empresa', 'documento', 'usuario')).estado).toBe('RECIBIDA');

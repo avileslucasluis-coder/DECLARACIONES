@@ -17,6 +17,17 @@ describe('Contrato SOAP SRI', () => {
     expect(mockFetch.mock.calls[0][1].body).toContain(`<xml>${Buffer.from(xmlPruebas).toString('base64')}</xml>`);
     expect(mockFetch.mock.calls[0][1].headers.SOAPAction).toBe('""');
   });
+  it('usa el endpoint oficial de producción solo cuando el servidor lo configura', async () => {
+    const previous = process.env.SRI_ENVIRONMENT;
+    process.env.SRI_ENVIRONMENT = 'produccion';
+    try {
+      mockFetch.mockResolvedValue(soap('<r:validarComprobanteResponse xmlns:r="http://ec.gob.sri.ws.recepcion"><RespuestaRecepcionComprobante><estado>RECIBIDA</estado><comprobantes/></RespuestaRecepcionComprobante></r:validarComprobanteResponse>'));
+      await client.recibir(xmlPruebas);
+      expect(mockFetch.mock.calls[0][0]).toBe('https://cel.sri.gob.ec/comprobantes-electronicos-ws/RecepcionComprobantesOffline');
+    } finally {
+      if (previous === undefined) delete process.env.SRI_ENVIRONMENT; else process.env.SRI_ENVIRONMENT = previous;
+    }
+  });
   it('interpreta mensajes de devolución sin perder ceros del identificador', async () => {
     mockFetch.mockResolvedValue(soap(`<validarComprobanteResponse><RespuestaRecepcionComprobante><estado>DEVUELTA</estado><comprobantes><comprobante><claveAcceso>${claveAcceso}</claveAcceso><mensajes><mensaje><identificador>070</identificador><mensaje>EN PROCESAMIENTO</mensaje></mensaje></mensajes></comprobante></comprobantes></RespuestaRecepcionComprobante></validarComprobanteResponse>`));
     expect((await client.recibir(xmlPruebas)).comprobantes[0].mensajes[0].identificador).toBe('070');

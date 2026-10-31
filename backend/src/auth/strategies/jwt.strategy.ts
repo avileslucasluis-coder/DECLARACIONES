@@ -27,6 +27,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user?.activo || (payload.sv ?? 0) !== user.sessionVersion) throw new UnauthorizedException('Sesión inválida.');
     // Lo que se retorna aquí queda disponible como request.user en cada
     // controller protegido con JwtAuthGuard.
-    return { userId: payload.sub, email: payload.email };
+    return { userId: payload.sub, email: payload.email, requiresIdentity: !/^(?:[0-9]{10}|[0-9]{13})$/.test(user.ruc ?? '') };
   }
 }

@@ -45,7 +45,7 @@ export function leerFuenteAts(xml: string | null | undefined): FuenteAts {
     let estadoAutorizacion = '';
     if (doc.autorizacion) {
       estadoAutorizacion = texto(doc.autorizacion.estado);
-      if (typeof doc.autorizacion.comprobante !== 'string' || XMLValidator.validate(doc.autorizacion.comprobante) !== true) return vacio;
+      if (typeof doc.autorizacion.comprobante !== 'string' || /<!DOCTYPE|<!ENTITY/i.test(doc.autorizacion.comprobante) || XMLValidator.validate(doc.autorizacion.comprobante) !== true) return vacio;
       doc = parser.parse(doc.autorizacion.comprobante);
     }
     const nodo = doc.factura ?? doc.notaCredito ?? doc.liquidacionCompra ?? doc.comprobanteRetencion;

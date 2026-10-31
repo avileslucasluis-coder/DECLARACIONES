@@ -8,7 +8,7 @@ try {
     $dbInput = Read-Host 'Pega la conexion DIRECTA de Neon (entrada oculta)' -AsSecureString
     $accountName = Read-Host 'Nombre completo'
     $accountEmail = Read-Host 'Correo para recuperar la cuenta'
-    $accountRuc = Read-Host 'RUC de 13 digitos'
+    $accountRuc = Read-Host 'Cedula de 10 digitos o RUC de 13 digitos'
     $passwordInput = Read-Host 'Nueva clave de 12 a 128 caracteres' -AsSecureString
     $confirmInput = Read-Host 'Repite la nueva clave' -AsSecureString
     $accountInput = @{

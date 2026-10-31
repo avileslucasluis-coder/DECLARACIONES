@@ -2,9 +2,22 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateCompanyDto } from './dto/company.dto';
+import { TaxProfileDto } from './dto/tax-profile.dto';
 
 @Injectable()
 export class CompaniesService {
+  async actualizarPerfil(companyId: string, dto: TaxProfileDto, userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const anterior = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
+      const company = await tx.company.update({ where: { id: companyId }, data: dto });
+      await this.audit.registrar({
+        userId, companyId, accion: 'ACTUALIZAR_PERFIL_TRIBUTARIO',
+        modulo: 'COMPANIES', registroId: companyId,
+        valorAnterior: anterior, valorNuevo: company, resultado: 'OK',
+      }, tx);
+      return company;
+    });
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,

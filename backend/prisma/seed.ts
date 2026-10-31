@@ -7,6 +7,7 @@ const prisma = new PrismaClient();
 /// nuevo es agregarlo aquí + asignarlo al rol que corresponda; nunca se
 /// codifica un "if (rol === 'CONTADOR')" dentro de un controller.
 const PERMISOS = [
+  { codigo: 'empresas.editar_perfil', modulo: 'COMPANIES' },
   { codigo: 'empresas.crear', modulo: 'COMPANIES' },
   { codigo: 'empresas.gestionar_usuarios', modulo: 'COMPANIES' },
   { codigo: 'obligaciones.ver', modulo: 'TAX_RULES' },

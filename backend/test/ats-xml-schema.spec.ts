@@ -49,6 +49,7 @@ describe('ATS generado por el servicio — validación XSD', () => {
 
   it('valida el XML real con compras y ventas', async () => {
     const base = {
+      atsRevision: { operacionLocal: true, parteRelacionada: 'NO', codSustento: '01', pagos: ['20'] },
       id: 'comprobante', tipoComprobante: 'FACTURA',
       claveAcceso: '1508202601099234567800110010010000000011234567890123'.slice(0, 49),
       rucEmisor: '0992345678001', identificacionContraparte: '0999999999001',
@@ -76,6 +77,7 @@ describe('ATS generado por el servicio — validación XSD', () => {
   });
 
   const venta = {
+    atsRevision: { operacionLocal: true, parteRelacionada: 'NO', pagos: ['20'] },
     id: 'venta', tipoComprobante: 'FACTURA', direccion: 'VENTA',
     claveAcceso: '1508202601099234567800110010010000000011234567890123'.slice(0, 49),
     rucEmisor: '0999999999001', identificacionContraparte: '0992345678001',
@@ -101,6 +103,24 @@ describe('ATS generado por el servicio — validación XSD', () => {
     expect(datos.ventas.detalleVentas[1].baseImpGrav).toBe('20.00');
   });
   it('no omite silenciosamente una nota de crédito de compra sin vincular', async () => {
-    await expect(servicio([{ ...venta, direccion: 'COMPRA', tipoComprobante: 'NOTA_CREDITO' }]).generarXml('empresa', 8, 2026, 'usuario')).rejects.toThrow('error(es) de validación');
+    await expect(servicio([{ ...venta, direccion: 'COMPRA', tipoComprobante: 'NOTA_CREDITO' }]).generarXml('empresa', 8, 2026, 'usuario')).rejects.toThrow('Corrige los datos ATS');
+  });
+  it('enlaza la retención emitida y conserva sus valores en el ATS de compras', async () => {
+    const compra = { ...venta, id: 'compra', direccion: 'COMPRA', rucEmisor: '0992345678001', identificacionContraparte: '0999999999001',
+      fechaEmision: new Date(Date.UTC(2026, 6, 15)), fechaRegistroAts: new Date(Date.UTC(2026, 7, 1)),
+      atsRevision: { operacionLocal: true, parteRelacionada: 'NO', codSustento: '01', pagos: ['20'] } };
+    const retencion = { ...venta, id: 'retencion', direccion: 'RETENCION_EMITIDA', tipoComprobante: 'RETENCION',
+      xmlOriginal: `<comprobanteRetencion><impuestos><impuesto><codigo>2</codigo><codigoRetencion>1</codigoRetencion><baseImponible>15</baseImponible><porcentajeRetener>30</porcentajeRetener><valorRetenido>4.50</valorRetenido><codDocSustento>01</codDocSustento><numDocSustento>${compra.claveAcceso.slice(24,39)}</numDocSustento></impuesto></impuestos></comprobanteRetencion>` };
+    const { xml } = await servicio([compra, retencion]).generarXml('empresa', 8, 2026, 'usuario');
+    validarXml(xml);
+    const detalle = new XMLParser({ parseTagValue: false }).parse(xml).iva.compras.detalleCompras;
+    expect(detalle.valorRetBienes).toBe('4.50');
+    expect(detalle.fechaEmision).toBe('15/07/2026');
+    expect(detalle.fechaRegistro).toBe('01/08/2026');
+    expect(detalle.autRetencion1).toBe(retencion.claveAcceso);
+  });
+  it('bloquea retenciones sin sustento en el período en vez de omitirlas', async () => {
+    const { errores } = await servicio([{ ...venta, direccion: 'RETENCION_EMITIDA', tipoComprobante: 'RETENCION' }]).validar('empresa', 8, 2026);
+    expect(errores.some(e => e.mensaje.includes('sustento'))).toBe(true);
   });
 });

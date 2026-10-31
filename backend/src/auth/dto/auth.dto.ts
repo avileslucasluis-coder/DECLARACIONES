@@ -1,7 +1,7 @@
 import { IsEmail, IsString, MinLength, MaxLength, Matches, ValidateIf } from 'class-validator';
 
 export class RegisterDto {
-  @Matches(/^[0-9]{13}$/, { message: 'El RUC debe tener 13 dígitos.' })
+  @Matches(/^(?:[0-9]{10}|[0-9]{13})$/, { message: 'Ingresa una cédula de 10 dígitos o un RUC de 13 dígitos.' })
   ruc!: string;
   @IsEmail()
   @MaxLength(254)
@@ -20,7 +20,7 @@ export class RegisterDto {
 
 export class LoginDto {
   @ValidateIf(o => o.ruc !== undefined || o.email === undefined)
-  @Matches(/^[0-9]{13}$/)
+  @Matches(/^(?:[0-9]{10}|[0-9]{13})$/)
   ruc?: string;
 
   @ValidateIf(o => o.email !== undefined || o.ruc === undefined)
@@ -37,6 +37,11 @@ export class RefreshDto {
   @IsString()
   @MaxLength(256)
   refreshToken!: string;
+}
+
+export class CompleteIdentityDto {
+  @Matches(/^(?:[0-9]{10}|[0-9]{13})$/, { message: 'Ingresa una cédula de 10 dígitos o un RUC de 13 dígitos.' })
+  ruc!: string;
 }
 
 export class ForgotPasswordDto {

@@ -15,7 +15,7 @@ class FirmaDto extends CompanyDto {
   @IsString() @MaxLength(1024) clave!: string;
 }
 
-@ApiTags('SRI — ambiente de pruebas')
+@ApiTags('SRI — ambiente configurado en el servidor')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('api/sri')

@@ -2,6 +2,7 @@
 /// `Contribuyente` local: ahora la empresa vive en el servidor y este
 /// objeto es solo la representación que llega por la API.
 class Company {
+  final Map<String, dynamic> perfilTributario;
   final String id;
   final String ruc;
   final String razonSocial;
@@ -14,6 +15,7 @@ class Company {
   final String? miRol;
 
   Company({
+    this.perfilTributario = const {},
     required this.id,
     required this.ruc,
     required this.razonSocial,
@@ -40,6 +42,7 @@ class Company {
   }
 
   factory Company.fromJson(Map<String, dynamic> json) => Company(
+        perfilTributario: Map<String, dynamic>.from(json),
         id: json['id'],
         ruc: json['ruc'],
         razonSocial: json['razonSocial'],

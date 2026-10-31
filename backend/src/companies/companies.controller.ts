@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { PermissionsGuard } from '../rbac/permissions.guard';
+import { RequirePermissions } from '../rbac/permissions.decorator';
+import { TaxProfileDto } from './dto/tax-profile.dto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -10,6 +13,16 @@ import { CreateCompanyDto } from './dto/company.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('api/companies')
 export class CompaniesController {
+  @Post(':companyId/perfil-tributario')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('empresas.editar_perfil')
+  actualizarPerfil(
+    @Param('companyId', ParseUUIDPipe) companyId: string,
+    @Body() dto: TaxProfileDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.companies.actualizarPerfil(companyId, dto, user.userId);
+  }
   constructor(private readonly companies: CompaniesService) {}
 
   @Get()

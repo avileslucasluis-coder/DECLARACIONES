@@ -9,6 +9,9 @@ import '../services/declaration_api_service.dart';
 import '../services/ats_api_service.dart';
 import '../services/api_exception.dart';
 import '../utils/app_theme.dart';
+import 'tax_adjustments_screen.dart';
+import 'ats_review_screen.dart';
+import 'filings_screen.dart';
 
 class DeclaracionesScreen extends StatefulWidget {
   final CompanyService companies;
@@ -25,6 +28,15 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
   Company? _seleccionada;
   int _mes = DateTime.now().month;
   int _anio = DateTime.now().year;
+  String _periodicidad = 'MENSUAL';
+  Map<String, String>? _ajustes;
+
+  Future<void> _conciliar() async {
+    if (_seleccionada == null) return;
+    final result = await Navigator.push<Map<String, String>>(context, MaterialPageRoute(builder: (_) =>
+      TaxAdjustmentsScreen(annual: _periodicidad == 'ANUAL', regimen: _seleccionada!.regimen, initial: _ajustes ?? {})));
+    if (mounted && result != null) setState(() { _ajustes = result; _resultado = null; });
+  }
 
   TaxDeclarationResult? _resultado;
   bool _cargandoEmpresas = true;
@@ -62,13 +74,17 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
 
   Future<void> _generar() async {
     if (_seleccionada == null) return;
+    if (_periodicidad == 'ANUAL' && _ajustes == null) {
+      await _conciliar();
+      if (!mounted || _ajustes == null) return;
+    }
     setState(() {
       _generando = true;
       _presentadaLocal = false;
       _error = null;
     });
     try {
-      final r = await widget.declarations.generar(companyId: _seleccionada!.id, mes: _mes, anio: _anio);
+      final r = await widget.declarations.generar(companyId: _seleccionada!.id, mes: _mes, anio: _anio, periodicidad: _periodicidad, ajustes: _ajustes);
       if (!mounted) return;
       setState(() => _resultado = r);
     } on ApiException catch (e) {
@@ -83,7 +99,7 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
     if (_seleccionada == null || _ocupado) return;
     setState(() { _presentando = true; _error = null; });
     try {
-      await widget.declarations.presentar(companyId: _seleccionada!.id, mes: _mes, anio: _anio);
+      await widget.declarations.presentar(companyId: _seleccionada!.id, mes: _mes, anio: _anio, periodicidad: _periodicidad);
       if (!mounted) return;
       setState(() => _presentadaLocal = true);
     } on ApiException catch (e) {
@@ -91,6 +107,65 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
       setState(() => _error = e.mensaje);
     } finally {
       if (mounted) setState(() => _presentando = false);
+    }
+  }
+
+  Future<void> _verHistorial() async {
+    final empresa = _seleccionada;
+    if (empresa == null || _ocupado) return;
+    final mes = _mes, anio = _anio;
+    setState(() { _generando = true; _error = null; });
+    try {
+      final versiones = await widget.declarations.historial(companyId: empresa.id, mes: mes, anio: anio, periodicidad: _periodicidad);
+      if (!mounted) return;
+      setState(() => _generando = false);
+      await showModalBottomSheet<void>(
+        context: context, isScrollControlled: true,
+        builder: (_) => SafeArea(child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.75,
+          child: ListView(padding: const EdgeInsets.all(20), children: [
+            Text('Historial ${_periodicidad == 'ANUAL' ? 'anual' : _periodicidad == 'SEMESTRAL' ? 'semestre ${mes ~/ 6}' : 'mes $mes'}/$anio', style: Theme.of(context).textTheme.titleLarge),
+            Text(empresa.razonSocial),
+            const SizedBox(height: 12),
+            const Text('El registro manual indica una acción del usuario; no confirma recepción ni pago ante el SRI.'),
+            if (versiones.isEmpty) const Padding(
+              padding: EdgeInsets.all(24), child: Text('Todavía no hay versiones para este período.')),
+            ...versiones.reversed.map((v) {
+              final datos = Map<String, dynamic>.from(v['snapshot'] as Map? ?? {});
+              final fecha = DateTime.tryParse(v['createdAt']?.toString() ?? '')?.toLocal();
+              return ExpansionTile(
+                title: Text('Versión ${v['version']} · ${v['action'] == 'REGISTRO_MANUAL' ? 'Presentación registrada' : 'Borrador generado'}'),
+                subtitle: Text(fecha?.toString().split('.').first ?? 'Fecha no disponible'),
+                children: [
+                  ListTile(title: const Text('Estado'), subtitle: Text('${datos['estado'] ?? '—'}')),
+                  if (datos['id'] != null) TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) =>
+                    FilingsScreen(api: widget.declarations.api, companyId: empresa.id, declarationId: datos['id'],
+                      revision: v['version'], annual: datos['periodicidad'] == 'ANUAL'))), child: const Text('Presentaciones, pagos y respaldos')),
+                  if (datos['liquidacion'] is Map) ...Map<String, dynamic>.from(datos['liquidacion']).entries
+                    .where((e) => ['baseImponible', 'impuestoCausado', 'totalRentaAPagar', 'saldoFavorRenta', 'totalAPagar104', 'totalAPagar103'].contains(e.key))
+                    .map((e) => ListTile(title: Text(e.key), trailing: Text('${e.value}'))),
+                  ...const {
+                    'totalVentasGravadas': 'Ventas gravadas',
+                    'totalVentas0': 'Ventas tarifa 0 %',
+                    'totalIvaVentas': 'IVA en ventas',
+                    'totalComprasGravadas': 'Compras gravadas',
+                    'totalCompras0': 'Compras tarifa 0 %',
+                    'totalIvaCompras': 'IVA en compras',
+                    'totalIvaRetenidoEnVentas': 'IVA retenido en ventas',
+                    'totalRetencionesIvaAplicadas': 'Retenciones de IVA aplicadas',
+                    'totalRetencionesRentaAplicadas': 'Retenciones de renta aplicadas',
+                  }.entries.where((e) => datos.containsKey(e.key)).map((e) =>
+                    ListTile(title: Text(e.value), trailing: Text('${datos[e.key]}'))),
+                ],
+              );
+            }),
+          ]),
+        )),
+      );
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.mensaje);
+    } finally {
+      if (mounted) setState(() => _generando = false);
     }
   }
 
@@ -160,7 +235,27 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                           items: _empresas.map((c) => DropdownMenuItem(value: c, child: Text(c.razonSocial))).toList(),
                           onChanged: _ocupado ? null : (v) => setState(() {
                             _seleccionada = v;
+                            _ajustes = null;
                             _resultado = null;
+                            _validacionAts = null;
+                          }),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _periodicidad,
+                          decoration: const InputDecoration(labelText: 'Período del papel de trabajo'),
+                          items: const [
+                            DropdownMenuItem(value: 'MENSUAL', child: Text('Mensual')),
+                            DropdownMenuItem(value: 'SEMESTRAL', child: Text('Semestral')),
+                            DropdownMenuItem(value: 'ANUAL', child: Text('Anual · Renta')),
+                          ],
+                          onChanged: _ocupado ? null : (v) => setState(() {
+                            _periodicidad = v!;
+                            _ajustes = null;
+                            if (v == 'ANUAL') _mes = 12;
+                            if (v == 'SEMESTRAL') _mes = _mes <= 6 ? 6 : 12;
+                            _resultado = null;
+                            _presentadaLocal = false;
                             _validacionAts = null;
                           }),
                         ),
@@ -169,13 +264,15 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int>(
+                                key: ValueKey('$_periodicidad-$_mes'),
                                 value: _mes,
-                                decoration: const InputDecoration(labelText: 'Mes'),
-                                items: List.generate(12, (i) => i + 1)
-                                    .map((m) => DropdownMenuItem(value: m, child: Text(_nombreMes(m))))
+                                decoration: InputDecoration(labelText: _periodicidad == 'ANUAL' ? 'Ejercicio completo' : _periodicidad == 'SEMESTRAL' ? 'Semestre' : 'Mes'),
+                                items: (_periodicidad == 'ANUAL' ? [12] : _periodicidad == 'SEMESTRAL' ? [6, 12] : List.generate(12, (i) => i + 1))
+                                    .map((m) => DropdownMenuItem(value: m, child: Text(_periodicidad == 'ANUAL' ? 'Enero – diciembre' : _periodicidad == 'SEMESTRAL' ? (m == 6 ? 'Enero – junio' : 'Julio – diciembre') : _nombreMes(m))))
                                     .toList(),
                                 onChanged: _ocupado ? null : (v) => setState(() {
                                   _mes = v!;
+                                  _ajustes = null;
                                   _resultado = null;
                                   _validacionAts = null;
                                 }),
@@ -191,6 +288,7 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                                     .toList(),
                                 onChanged: _ocupado ? null : (v) => setState(() {
                                   _anio = v!;
+                                  _ajustes = null;
                                   _resultado = null;
                                   _validacionAts = null;
                                 }),
@@ -199,13 +297,20 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                           ],
                         ),
                         const SizedBox(height: 16),
+                        OutlinedButton.icon(onPressed: _ocupado ? null : _conciliar,
+                          icon: const Icon(Icons.edit_note), label: Text(_ajustes == null ? 'Conciliar saldos y ajustes' : 'Conciliación registrada · editar')),
                         ElevatedButton.icon(
                           onPressed: _ocupado ? null : _generar,
                           icon: _generando
                               ? const SizedBox(
                                   width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.calculate),
-                          label: Text(_generando ? 'Calculando...' : 'Generar papel de trabajo mensual'),
+                          label: Text(_generando ? 'Calculando...' : 'Generar papel de trabajo ${_periodicidad == 'ANUAL' ? 'anual' : _periodicidad == 'SEMESTRAL' ? 'semestral' : 'mensual'}'),
+                        ),
+                        TextButton.icon(
+                          onPressed: _ocupado ? null : _verHistorial,
+                          icon: const Icon(Icons.history),
+                          label: const Text('Ver historial del período'),
                         ),
                       ],
                     ),
@@ -217,11 +322,25 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                 ],
                 if (_resultado != null) ...[
                   const SizedBox(height: 20),
+                  OutlinedButton.icon(icon: const Icon(Icons.attach_file), label: const Text('Registrar presentación o pago'),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FilingsScreen(
+                      api: widget.declarations.api, companyId: _seleccionada!.id, declarationId: _resultado!.id,
+                      revision: _resultado!.revision, annual: _periodicidad == 'ANUAL')))),
+                  if (_periodicidad == 'ANUAL') Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Liquidación anual de renta', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ...const {'baseImponible': 'Base imponible', 'impuestoCausado': 'Impuesto causado', 'rebajaAplicada': 'Rebaja aplicada',
+                        'impuestoRentaAPagar': 'Renta a pagar', 'saldoFavorRenta': 'Saldo a favor', 'totalRentaAPagar': 'Total con multa e interés'}
+                        .entries.map((e) => ListTile(title: Text(e.value), trailing: Text('\$${_resultado!.liquidacion[e.key] ?? 0}'))),
+                      ..._resultado!.advertencias.map((a) => Text(a)),
+                    ]))),
+                  if (_periodicidad != 'ANUAL')
                   _TarjetaDeclaracion(resultado: _resultado!, presentadaLocal: _presentadaLocal,
                     onMarcarPresentada: _ocupado ? null : _marcarPresentada),
                 ],
                 const SizedBox(height: 24),
-                Card(
+                if (_periodicidad == 'SEMESTRAL') const Text('Este consolidado corresponde al papel de trabajo de impuestos. La generación de ATS disponible actualmente se consulta en el período mensual.'),
+                if (_periodicidad == 'MENSUAL') Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -238,6 +357,11 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                               onPressed: _ocupado ? null : _validarAts,
                               icon: const Icon(Icons.fact_check_outlined),
                               label: const Text('Validar ATS'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: _ocupado || _seleccionada == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => AtsReviewScreen(api: widget.ats.api, companyId: _seleccionada!.id, mes: _mes, anio: _anio))),
+                              icon: const Icon(Icons.edit_note),
+                              label: const Text('Revisar datos ATS'),
                             ),
                             ElevatedButton.icon(
                               onPressed: _ocupado ? null : _generarYDescargarAts,
@@ -309,7 +433,10 @@ class _TarjetaDeclaracion extends StatelessWidget {
             Wrap(
               spacing: 12,
               children: [
-                const Text('Resumen del periodo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(resultado.periodicidad == 'SEMESTRAL'
+                  ? 'Resumen semestral ${resultado.mes == 6 ? 'enero – junio' : 'julio – diciembre'} / ${resultado.anio}'
+                  : 'Resumen mensual ${resultado.mes}/${resultado.anio}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 Chip(
                   label: Text(presentadaLocal ? 'PRESENTACIÓN REGISTRADA LOCALMENTE' : resultado.estado),
                   backgroundColor: presentadaLocal ? AppTheme.primary.withValues(alpha: 0.15) : Colors.grey.shade200,

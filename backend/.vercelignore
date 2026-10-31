@@ -11,4 +11,7 @@ test
 **/*.pem
 **/*.key
 **/*.sql.dump
+**/*.dump
+**/*.enc
+**/*.partial
 !public

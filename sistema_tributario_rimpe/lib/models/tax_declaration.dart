@@ -2,6 +2,11 @@
 /// guardados en `tax_declarations` más los campos calculados que el
 /// backend agrega en la respuesta (ivaAPagar104, totalAPagar103, etc.).
 class TaxDeclarationResult {
+  final String id;
+  final int revision;
+  final Map<String, dynamic> liquidacion;
+  final double? total104;
+  final String periodicidad;
   final int mes;
   final int anio;
   final String estado;
@@ -19,9 +24,11 @@ class TaxDeclarationResult {
   final double totalAPagar103;
   final double rentaRetenidaEnVentasInformativo;
   final List<String> advertencias;
-  double get totalAPagar104 => ivaAPagar104 + totalRetencionesIvaAplicadas;
+  double get totalAPagar104 => total104 ?? ivaAPagar104 + totalRetencionesIvaAplicadas;
 
   TaxDeclarationResult({
+    this.id = '', this.revision = 1, this.liquidacion = const {}, this.total104,
+    this.periodicidad = 'MENSUAL',
     required this.mes,
     required this.anio,
     required this.estado,
@@ -44,6 +51,9 @@ class TaxDeclarationResult {
   factory TaxDeclarationResult.fromJson(Map<String, dynamic> json) {
     double n(String k) => double.parse((json[k] ?? 0).toString());
     return TaxDeclarationResult(
+      id: json['id'] ?? '', revision: json['revision'] ?? 1,
+      liquidacion: Map<String, dynamic>.from(json['liquidacion'] ?? {}), total104: n('totalAPagar104'),
+      periodicidad: json['periodicidad'] ?? 'MENSUAL',
       mes: json['mes'],
       anio: json['anio'],
       estado: json['estado'] ?? 'BORRADOR',

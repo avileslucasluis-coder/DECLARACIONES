@@ -1,7 +1,7 @@
 import { BadGatewayException, Injectable } from '@nestjs/common';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { sriEndpoints, sriEnvironment } from './sri-environment';
 
-const BASE = 'https://celcer.sri.gob.ec/comprobantes-electronicos-ws/';
 const array = <T>(valor: T | T[] | undefined): T[] => valor === undefined ? [] : Array.isArray(valor) ? valor : [valor];
 export type SriMessage = { identificador: string; mensaje: string; informacionAdicional: string; tipo: string };
 export interface SriAuthorization {
@@ -19,10 +19,10 @@ export class SriClientService {
     }));
   }
 
-  private async soap(servicio: string, namespace: string, operacion: string, parametro: string, valor: string): Promise<any> {
+  private async soap(endpoint: string, namespace: string, operacion: string, parametro: string, valor: string): Promise<any> {
     const body = `<?xml version="1.0" encoding="UTF-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"><soap:Body><sri:${operacion} xmlns:sri="${namespace}"><${parametro}>${valor}</${parametro}></sri:${operacion}></soap:Body></soap:Envelope>`;
     try {
-      const respuesta = await fetch(BASE + servicio, {
+      const respuesta = await fetch(endpoint, {
         method: 'POST', headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '""' },
         body, signal: AbortSignal.timeout(20000), redirect: 'error',
       });
@@ -50,7 +50,7 @@ export class SriClientService {
   }
 
   async recibir(xmlFirmado: string) {
-    const respuesta = await this.soap('RecepcionComprobantesOffline', 'http://ec.gob.sri.ws.recepcion', 'validarComprobante', 'xml', Buffer.from(xmlFirmado, 'utf8').toString('base64'));
+    const respuesta = await this.soap(sriEndpoints(sriEnvironment()).recepcion, 'http://ec.gob.sri.ws.recepcion', 'validarComprobante', 'xml', Buffer.from(xmlFirmado, 'utf8').toString('base64'));
     const resultado = respuesta.RespuestaRecepcionComprobante;
     const estado = String(resultado?.estado ?? '').trim();
     if (!['RECIBIDA', 'DEVUELTA'].includes(estado)) throw new BadGatewayException('Estado de recepción desconocido del SRI.');
@@ -62,7 +62,7 @@ export class SriClientService {
 
   async consultar(claveAcceso: string): Promise<{ claveAcceso: string; autorizaciones: SriAuthorization[] }> {
     if (!/^\d{49}$/.test(claveAcceso)) throw new BadGatewayException('Clave inválida para la consulta SRI.');
-    const respuesta = await this.soap('AutorizacionComprobantesOffline', 'http://ec.gob.sri.ws.autorizacion', 'autorizacionComprobante', 'claveAccesoComprobante', claveAcceso);
+    const respuesta = await this.soap(sriEndpoints(sriEnvironment()).autorizacion, 'http://ec.gob.sri.ws.autorizacion', 'autorizacionComprobante', 'claveAccesoComprobante', claveAcceso);
     const resultado = respuesta.RespuestaAutorizacionComprobante;
     if (!resultado || String(resultado.claveAccesoConsultada ?? '').trim() !== claveAcceso) {
       throw new BadGatewayException('La respuesta de autorización no corresponde a la clave consultada.');

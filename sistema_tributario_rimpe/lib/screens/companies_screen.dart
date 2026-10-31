@@ -3,6 +3,7 @@ import '../models/company.dart';
 import '../services/company_service.dart';
 import '../services/api_exception.dart';
 import '../utils/app_theme.dart';
+import 'tax_profile_screen.dart';
 
 class CompaniesScreen extends StatefulWidget {
   final CompanyService companies;
@@ -97,7 +98,16 @@ class _CompaniesScreenState extends State<CompaniesScreen> {
                                 ),
                               ),
                               title: Text(c.razonSocial),
-                              subtitle: Text('RUC: ${c.ruc} · ${c.regimenLabel}'),
+                              onTap: ['ADMIN_EMPRESA', 'SUPER_ADMIN'].contains(c.miRol)
+                                  ? () async {
+                                      final saved = await Navigator.push<bool>(context,
+                                        MaterialPageRoute(builder: (_) => TaxProfileScreen(
+                                          company: c, service: widget.companies)));
+                                      if (mounted && saved == true) await _cargar();
+                                    }
+                                  : null,
+                              subtitle: Text('RUC: ${c.ruc} · ${c.regimenLabel}'
+                                '${['ADMIN_EMPRESA', 'SUPER_ADMIN'].contains(c.miRol) ? '\nToca para editar el perfil tributario' : ''}'),
                               trailing: c.miRol != null
                                   ? Chip(label: Text(c.miRol!), visualDensity: VisualDensity.compact)
                                   : null,

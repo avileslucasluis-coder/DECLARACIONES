@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:share_plus/share_plus.dart';
 import '../models/company.dart';
 import '../models/obligacion.dart';
 import '../services/company_service.dart';
@@ -72,6 +74,39 @@ class _ObligacionesScreenState extends State<ObligacionesScreen> {
     }
   }
 
+  Future<void> _revisarFecha(ObligacionApi o) async {
+    final fecha = TextEditingController(text: o.fechaVencimiento?.toIso8601String().substring(0, 10));
+    final fuente = TextEditingController();
+    final motivo = TextEditingController();
+    final form = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Confirmar vencimiento'),
+      content: SizedBox(width: 440, child: SingleChildScrollView(child: Form(key: form, child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Solo el administrador de la empresa puede confirmar una fecha. Registra la resolución o calendario del SRI aplicable a esta empresa y período.'),
+        TextFormField(controller: fecha, decoration: const InputDecoration(labelText: 'Fecha AAAA-MM-DD'), validator: (v) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(v ?? '') ? null : 'Revisa la fecha'),
+        TextFormField(controller: fuente, decoration: const InputDecoration(labelText: 'Enlace oficial del SRI'), validator: (v) => RegExp(r'^https://(www\.)?sri\.gob\.ec/').hasMatch(v ?? '') ? null : 'Usa un enlace oficial HTTPS'),
+        TextFormField(controller: motivo, maxLength: 1000, decoration: const InputDecoration(labelText: 'Fundamento y ámbito aplicable'), validator: (v) => (v?.trim().length ?? 0) >= 10 ? null : 'Explica el fundamento'),
+      ])))), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')), FilledButton(onPressed: () { if (form.currentState!.validate()) Navigator.pop(context, true); }, child: const Text('Guardar'))],
+    ));
+    if (accepted == true) {
+      try {
+        await widget.obligations.api.post('/api/tax/obligations/deadline', body: {'companyId': _seleccionada!.id, 'mes': _mes, 'anio': _anio, 'tipo': o.tipo, 'fecha': fecha.text, 'fuente': fuente.text, 'motivo': motivo.text.trim()});
+        await _evaluar();
+      } on ApiException catch (e) { if (mounted) setState(() => _error = e.mensaje); }
+    }
+    fecha.dispose(); fuente.dispose(); motivo.dispose();
+  }
+
+  Future<void> _calendario() async {
+    final lines = <String>['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sistema Tributario//Vencimientos//ES'];
+    for (final o in _obligaciones.where((o) => o.fechaVencimiento != null && o.estado != 'NO_OBLIGADO')) {
+      final date = o.fechaVencimiento!.toIso8601String().substring(0,10).replaceAll('-', '');
+      lines.addAll(['BEGIN:VEVENT', 'UID:${_seleccionada!.id}-$_anio-$_mes-${o.tipo}@sistema-tributario', 'DTSTAMP:${DateTime.now().toUtc().toIso8601String().replaceAll('-', '').replaceAll(':', '').split('.').first}Z', 'DTSTART;VALUE=DATE:$date', 'SUMMARY:Vencimiento ${o.tipo}', 'DESCRIPTION:Revisa fecha y alcance en Sistema Tributario antes de presentar.', 'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-P3D', 'DESCRIPTION:Revisar obligación tributaria', 'END:VALARM', 'END:VEVENT']);
+    }
+    lines.add('END:VCALENDAR');
+    await Share.shareXFiles([XFile.fromData(utf8.encode(lines.join('\r\n') + '\r\n'), mimeType: 'text/calendar', name: 'vencimientos.ics')], fileNameOverrides: ['vencimientos.ics']);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,7 +162,13 @@ class _ObligacionesScreenState extends State<ObligacionesScreen> {
                 if (_cargando) const Center(child: CircularProgressIndicator()),
                 if (_error != null) Text(_error!, style: TextStyle(color: AppTheme.danger)),
                 if (!_cargando && _error == null)
-                  ..._obligaciones.map((o) => _TarjetaObligacion(obligacion: o)),
+                  ...[
+                    OutlinedButton.icon(onPressed: _obligaciones.any((o) => o.fechaVencimiento != null) ? _calendario : null, icon: const Icon(Icons.calendar_month), label: const Text('Exportar recordatorios al calendario')),
+                    ..._obligaciones.map((o) => Column(children: [
+                      _TarjetaObligacion(obligacion: o),
+                      if (o.fechaVencimiento != null) TextButton(onPressed: () => _revisarFecha(o), child: const Text('Confirmar fecha con fuente del SRI')),
+                    ])),
+                  ],
               ],
             ),
     );

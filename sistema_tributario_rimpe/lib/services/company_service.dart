@@ -5,6 +5,10 @@ class CompanyService {
   final ApiClient api;
   CompanyService(this.api);
 
+  Future<void> actualizarPerfil(String id, Map<String, dynamic> perfil) async {
+    await api.post('/api/companies/$id/perfil-tributario', body: perfil);
+  }
+
   Future<List<Company>> listar() async {
     final data = await api.get('/api/companies') as List;
     return data.map((e) => Company.fromJson(e)).toList();

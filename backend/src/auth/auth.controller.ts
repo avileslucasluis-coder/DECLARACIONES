@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Req, Ip, Post, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { AllowIncompleteIdentity, JwtAuthGuard } from './guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthRateGuard } from '../security/auth-rate.guard';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshDto, ForgotPasswordDto, ResetPasswordDto } from './dto/auth.dto';
+import { CompleteIdentityDto, RegisterDto, LoginDto, RefreshDto, ForgotPasswordDto, ResetPasswordDto } from './dto/auth.dto';
 import { PasswordRecoveryService } from './password-recovery.service';
 
 @ApiTags('auth')
@@ -14,10 +14,18 @@ export class AuthController {
   constructor(private readonly auth: AuthService, private readonly recovery: PasswordRecoveryService, private readonly prisma: PrismaService) {}
 
   @Get('me')
+  @AllowIncompleteIdentity()
   @UseGuards(JwtAuthGuard)
   me(@Req() req: any) {
     return this.prisma.user.findUnique({ where: { id: req.user.userId },
       select: { email: true, ruc: true, nombre: true, platformAdmin: true } });
+  }
+
+  @Post('identity')
+  @UseGuards(JwtAuthGuard)
+  @AllowIncompleteIdentity()
+  completeIdentity(@Req() req: any, @Body() dto: CompleteIdentityDto) {
+    return this.auth.completeIdentity(req.user.userId, dto.ruc);
   }
 
   @Post('forgot-password')

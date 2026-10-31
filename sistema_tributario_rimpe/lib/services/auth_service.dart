@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'session_storage.dart';
 
-enum EstadoSesion { cargando, autenticado, noAutenticado }
+enum EstadoSesion { cargando, autenticado, noAutenticado, completarIdentificacion }
 
 /// Estado global de sesión. RootApp escucha esto para decidir si muestra
 /// LoginScreen o RootShell. El ApiClient llama a [cerrarSesionLocal]
@@ -16,6 +16,19 @@ class AuthService extends ChangeNotifier {
   String? email;
   bool platformAdmin = false;
   bool _disposed = false;
+
+  void _applyProfile(dynamic profile) {
+    platformAdmin = profile['platformAdmin'] == true;
+    email = profile['email'] as String?;
+    estado = RegExp(r'^(?:[0-9]{10}|[0-9]{13})$').hasMatch(profile['ruc'] as String? ?? '')
+        ? EstadoSesion.autenticado : EstadoSesion.completarIdentificacion;
+  }
+
+  Future<void> completarIdentificacion(String documento) async {
+    await api.post('/api/auth/identity', body: {'ruc': documento.trim()});
+    _applyProfile(await api.get('/api/auth/me'));
+    notifyListeners();
+  }
 
   @override
   void notifyListeners() {
@@ -39,9 +52,7 @@ class AuthService extends ChangeNotifier {
     if (token != null) {
       try {
         final profile = await api.get('/api/auth/me');
-        platformAdmin = profile['platformAdmin'] == true;
-        email = profile['email'] as String?;
-        estado = EstadoSesion.autenticado;
+        _applyProfile(profile);
       } catch (_) { estado = EstadoSesion.noAutenticado; }
     } else { estado = EstadoSesion.noAutenticado; }
     notifyListeners();
@@ -52,8 +63,7 @@ class AuthService extends ChangeNotifier {
     await _session.guardar(accessToken: data['accessToken'], refreshToken: data['refreshToken']);
     email = correo;
     final profile = await api.get('/api/auth/me');
-    platformAdmin = profile['platformAdmin'] == true;
-    estado = EstadoSesion.autenticado;
+    _applyProfile(profile);
     notifyListeners();
   }
 
@@ -65,8 +75,7 @@ class AuthService extends ChangeNotifier {
     await _session.guardar(accessToken: data['accessToken'], refreshToken: data['refreshToken']);
     email = correo;
     final profile = await api.get('/api/auth/me');
-    platformAdmin = profile['platformAdmin'] == true;
-    estado = EstadoSesion.autenticado;
+    _applyProfile(profile);
     notifyListeners();
   }
 

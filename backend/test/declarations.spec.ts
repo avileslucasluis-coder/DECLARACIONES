@@ -1,6 +1,7 @@
 import { DeclarationsService } from '../src/declarations/declarations.service';
 
 function transaccional(prisma: any) {
+  prisma.taxDeclaration.count ??= jest.fn().mockResolvedValue(0);
   prisma.taxDeclaration.findUnique ??= jest.fn().mockResolvedValue(null);
   prisma.$executeRaw = jest.fn().mockResolvedValue(1);
   prisma.declarationRevision = { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() };
@@ -9,6 +10,32 @@ function transaccional(prisma: any) {
 }
 
 describe('Papel de trabajo 103 y104', () => {
+  it.each([[6, '2026-01-01', '2026-07-01'], [12, '2026-07-01', '2027-01-01']])(
+    'consolida el semestre de cierre %s con límites independientes de la zona horaria', async (mes, desde, hasta) => {
+      const prisma: any = { voucher: { findMany: jest.fn().mockResolvedValue([]) },
+        taxDeclaration: { upsert: jest.fn(async ({ create }) => ({ id: 'semester', ...create })) } };
+      const result = await new DeclarationsService(transaccional(prisma), { registrar: jest.fn() } as any)
+        .generarParaPeriodo('empresa', mes as number, 2026, 'usuario', 'SEMESTRAL');
+      expect(prisma.voucher.findMany.mock.calls[0][0].where.fechaEmision).toEqual({
+        gte: new Date(desde + 'T00:00:00Z'), lt: new Date(hasta + 'T00:00:00Z'),
+      });
+      expect(result.periodicidad).toBe('SEMESTRAL');
+      expect(result.alcance).toBe('PAPEL_TRABAJO_SEMESTRAL');
+      expect(prisma.taxDeclaration.upsert.mock.calls[0][0].where.companyId_mes_anio_periodicidad.periodicidad).toBe('SEMESTRAL');
+    });
+
+  it('rechaza un cierre semestral inválido antes de leer comprobantes', async () => {
+    const service = new DeclarationsService({} as any, {} as any);
+    await expect(service.generarParaPeriodo('empresa', 7, 2026, 'usuario', 'SEMESTRAL')).rejects.toThrow('junio o diciembre');
+  });
+
+  it('no genera un semestre que incluye una presentación mensual registrada', async () => {
+    const prisma: any = { voucher: { findMany: jest.fn().mockResolvedValue([]) },
+      taxDeclaration: { count: jest.fn().mockResolvedValue(1), upsert: jest.fn() } };
+    await expect(new DeclarationsService(transaccional(prisma), {} as any)
+      .generarParaPeriodo('empresa', 6, 2026, 'usuario', 'SEMESTRAL')).rejects.toThrow('superpuesto');
+    expect(prisma.taxDeclaration.upsert).not.toHaveBeenCalled();
+  });
   it('conserva centavos al compensar compras, ventas y notas de crédito', async () => {
     const base = { tipoComprobante: 'FACTURA', direccion: 'VENTA', baseImponibleIva: '0', baseImponibleIva0: '0', montoIva: '0', montoRentaRetenida: '0' };
     const prisma: any = { voucher: { findMany: jest.fn().mockResolvedValue([

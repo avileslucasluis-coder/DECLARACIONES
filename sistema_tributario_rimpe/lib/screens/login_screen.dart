@@ -115,10 +115,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (_modoRegistro || !_accesoAnterior) ...[
                     TextFormField(
                       controller: _ruc,
-                      decoration: const InputDecoration(labelText: 'RUC', helperText: 'Usa tu contraseña de Sistema Tributario, no la del SRI.'),
+                      decoration: const InputDecoration(labelText: 'Cédula o RUC', helperText: 'Usa tu contraseña de Sistema Tributario, no la del SRI.'),
                       keyboardType: TextInputType.number,
                       maxLength: 13,
-                      validator: (v) => RegExp(r'^\d{13}$').hasMatch(v ?? '') ? null : 'Ingresa los 13 dígitos del RUC',
+                      validator: (v) => RegExp(r'^(?:[0-9]{10}|[0-9]{13})$').hasMatch(v?.trim() ?? '') ? null : 'Cédula: 10 dígitos. RUC: 13 dígitos.',
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -164,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   if (!_modoRegistro) TextButton(
                     onPressed: _cargando ? null : () => setState(() => _accesoAnterior = !_accesoAnterior),
-                    child: Text(_accesoAnterior ? 'Ingresar con RUC' : 'Cuenta anterior: ingresar con correo'),
+                    child: Text(_accesoAnterior ? 'Ingresar con cédula o RUC' : 'Cuenta anterior: ingresar con correo'),
                   ),
                   TextButton(
                     onPressed: _cargando ? null : () => setState(() => _modoRegistro = !_modoRegistro),

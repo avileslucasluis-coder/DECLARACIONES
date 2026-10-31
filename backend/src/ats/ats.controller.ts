@@ -6,6 +6,7 @@ import { PermissionsGuard } from '../rbac/permissions.guard';
 import { RequirePermissions } from '../rbac/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AtsService } from './ats.service';
+import { AtsReviewDto } from './ats-review.dto';
 
 class AtsPeriodoDto {
   @IsUUID()
@@ -27,6 +28,17 @@ class AtsPeriodoDto {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('api/ats')
 export class AtsController {
+  @Get('review')
+  @RequirePermissions('ats.validar')
+  revisar(@Query('companyId') companyId: string, @Query('mes') mes: string, @Query('anio') anio: string) {
+    return this.ats.obtenerDetalle(companyId, Number(mes), Number(anio));
+  }
+
+  @Post('review')
+  @RequirePermissions('ats.generate')
+  guardarRevision(@Body() dto: AtsReviewDto, @CurrentUser() user: { userId: string }) {
+    return this.ats.guardarRevision(dto, user.userId);
+  }
   constructor(private readonly ats: AtsService) {}
 
   @Post('validate')
