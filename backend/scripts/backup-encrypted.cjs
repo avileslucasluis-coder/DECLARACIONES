@@ -6,9 +6,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { encryptBackup } = require('./encrypt-backup.cjs');
 
+let stage = 'validación de clave';
 async function main() {
+  process.env.BACKUP_ENCRYPTION_KEY = (process.env.BACKUP_ENCRYPTION_KEY ?? '').trim();
   if (!/^[a-f0-9]{64}$/i.test(process.env.BACKUP_ENCRYPTION_KEY ?? '')) throw new Error('Falta BACKUP_ENCRYPTION_KEY de 64 caracteres hexadecimales.');
-  const url = new URL(process.env.DATABASE_URL ?? '');
+  stage = 'validación de conexión y TLS';
+  const url = new URL((process.env.DATABASE_URL ?? '').trim());
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('Conexión PostgreSQL inválida.');
   if (url.searchParams.get('sslmode') !== 'require' && url.searchParams.get('sslmode') !== 'verify-full') throw new Error('La copia remota requiere TLS.');
   const target = path.resolve(process.argv[2] ?? 'backup.enc');
@@ -16,6 +19,7 @@ async function main() {
   const temporary = target + '.' + randomUUID() + '.partial';
   const env = { ...process.env, PGHOST: url.hostname, PGPORT: url.port || '5432', PGDATABASE: decodeURIComponent(url.pathname.slice(1)),
     PGUSER: decodeURIComponent(url.username), PGPASSWORD: decodeURIComponent(url.password), PGSSLMODE: 'verify-full', PGSSLROOTCERT: 'system', PGCONNECT_TIMEOUT: '30' };
+  stage = 'conexión PostgreSQL y pg_dump';
   const child = spawn('docker', ['run', '--rm', '-i', ...['PGHOST','PGPORT','PGDATABASE','PGUSER','PGPASSWORD','PGSSLMODE','PGSSLROOTCERT','PGCONNECT_TIMEOUT'].flatMap(k => ['-e', k]),
     'postgres:18-alpine', 'pg_dump', '--format=custom', '--no-owner', '--no-acl'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   // No imprimir stderr: puede contener información de la conexión.
@@ -32,4 +36,4 @@ async function main() {
     try { fs.unlinkSync(temporary); } catch {}
   }
 }
-main().catch(() => { console.error('No se pudo crear la copia cifrada. Comprueba Docker, la conexión y la clave.'); process.exitCode = 1; });
+main().catch(() => { console.error('No se pudo crear la copia cifrada. Etapa: ' + stage + '. Comprueba Docker, la conexión y la clave.'); process.exitCode = 1; });

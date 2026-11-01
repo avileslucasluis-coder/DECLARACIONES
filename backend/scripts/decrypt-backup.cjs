@@ -4,6 +4,7 @@ const path = require('node:path');
 const { createDecipheriv, randomUUID } = require('node:crypto');
 const { pipeline } = require('node:stream/promises');
 async function decryptBackup(input, output, key) {
+  key = typeof key === 'string' ? key.trim() : key;
   if (!/^[a-f0-9]{64}$/i.test(key ?? '')) throw new Error('Clave inválida.');
   const source = path.resolve(input), target = path.resolve(output);
   if (source === target || fs.existsSync(target)) throw new Error('El destino debe ser un archivo nuevo.');
