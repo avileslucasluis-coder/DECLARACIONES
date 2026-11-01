@@ -137,9 +137,9 @@ class _RootShellState extends State<RootShell> {
               unselectedIconTheme: IconThemeData(color: Colors.white.withOpacity(0.6)),
               selectedLabelTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               unselectedLabelTextStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-              leading: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Icon(Icons.calculate_rounded, color: Colors.white, size: 34),
+              leading: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: Image.asset('assets/branding/logo.png', width: 48, height: 48, semanticLabel: 'Sistema Tributario'),
               ),
               trailing: Expanded(
                 child: Align(

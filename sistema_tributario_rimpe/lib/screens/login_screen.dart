@@ -97,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.calculate_rounded, size: 56, color: AppTheme.primary),
+                  ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.asset('assets/branding/logo.png', width: 72, height: 72, semanticLabel: 'Sistema Tributario')),
                   const SizedBox(height: 12),
                   const Text('Sistema Tributario RIMPE',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
