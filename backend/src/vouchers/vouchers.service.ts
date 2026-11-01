@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { parseComprobanteXml, XmlComprobanteException } from './xml-parser.util';
+import { assertPeriodOpen } from '../declarations/period-lock';
 
 @Injectable()
 export class VouchersService {
@@ -30,7 +31,9 @@ export class VouchersService {
       throw new BadRequestException('Este comprobante ya fue importado (clave de acceso duplicada).');
     }
 
-    const voucher = await this.prisma.voucher.create({
+    const voucher = await this.prisma.$transaction(async tx => {
+      await assertPeriodOpen(tx, companyId, [parseado.fechaEmision]);
+      return tx.voucher.create({
       data: {
         companyId,
         tipoComprobante: parseado.tipoComprobante,
@@ -48,6 +51,7 @@ export class VouchersService {
         montoRentaRetenida: parseado.montoRentaRetenida,
         importeTotal: parseado.importeTotal,
       },
+      });
     }).catch((error: unknown) => {
       // El índice único también protege las importaciones concurrentes.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

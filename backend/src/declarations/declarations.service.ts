@@ -6,6 +6,9 @@ import { encryptPdf, decryptPdf } from '../security/encrypted-files';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { declarationReport } from './declaration-report';
+import { declarationSource } from './declaration-source';
+import { assertPeriodOpen } from './period-lock';
 
 /// Papel de trabajo mensual a partir de comprobantes importados. El 103
 /// contiene retenciones de renta; las retenciones de IVA corresponden al 104.
@@ -99,6 +102,7 @@ export class DeclarationsService {
       totalRetencionesIvaAplicadas: redondear(retIvaAplicada),
       totalRetencionesRentaAplicadas: redondear(retRentaAplicada),
     };
+    Object.assign(liquidacion, declarationSource(vouchers));
 
     const declaration = await this.versionar(companyId, mes, anio, userId, 'GENERAR_BORRADOR', periodicidad, async tx => tx.taxDeclaration.upsert({
       where: { companyId_mes_anio_periodicidad: { companyId, mes, anio, periodicidad } },
@@ -186,6 +190,79 @@ export class DeclarationsService {
     });
   }
 
+  async workflow(companyId: string, mes: number, anio: number, periodicidad: string, action: string, revision: number, motivo: string, actorId: string) {
+    this.validarPeriodo(mes, anio, periodicidad);
+    const transitions: Record<string, { from: string[]; to: string }> = {
+      REVISAR: { from: ['BORRADOR', 'PRESENTADA_LOCAL'], to: 'EN_REVISION' },
+      APROBAR: { from: ['EN_REVISION'], to: 'APROBADA' },
+      CERRAR: { from: ['APROBADA'], to: 'CERRADA' },
+      REABRIR: { from: ['EN_REVISION', 'APROBADA', 'CERRADA'], to: 'BORRADOR' },
+    };
+    const transition = transitions[action];
+    if (!transition || motivo.trim().length < 10) throw new BadRequestException('Indica una acción válida y un motivo de al menos 10 caracteres.');
+    return this.versionar(companyId, mes, anio, actorId, action, periodicidad, async tx => {
+      const current = await tx.taxDeclaration.findUnique({ where: { companyId_mes_anio_periodicidad: { companyId, mes, anio, periodicidad } } });
+      if (!current) throw new NotFoundException('Primero genera el papel de trabajo.');
+      const last = await tx.declarationRevision.findFirst({ where: { declarationId: current.id }, orderBy: { version: 'desc' } });
+      if (last?.version !== revision) throw new ConflictException('La versión cambió. Recarga el período antes de continuar.');
+      if (!transition.from.includes(current.estado)) throw new ConflictException('La acción no corresponde al estado actual del período.');
+      const liquidacion = current.liquidacion as Record<string, any>;
+      if (action !== 'REABRIR') {
+        if (!liquidacion?.conciliado) throw new ConflictException('Confirma la conciliación antes de revisar el período.');
+        const vouchers = await tx.voucher.findMany({ where: { companyId, fechaEmision: {
+          gte: new Date(Date.UTC(anio, periodicidad === 'ANUAL' ? 0 : periodicidad === 'SEMESTRAL' ? mes - 6 : mes - 1, 1)),
+          lt: new Date(Date.UTC(anio, mes, 1)),
+        } } });
+        if (declarationSource(vouchers).huellaComprobantes !== liquidacion.huellaComprobantes) {
+          throw new ConflictException('Los comprobantes cambiaron o esta versión no tiene detalle histórico. Reabre y genera nuevamente antes de aprobar.');
+        }
+      }
+      const result = await tx.taxDeclaration.update({ where: { id: current.id }, data: {
+        estado: transition.to, liquidacion: { ...liquidacion, controlPeriodo: { accion: action, motivo: motivo.trim(), actorId, fecha: new Date().toISOString() } },
+      } });
+      await this.audit.registrar({ userId: actorId, companyId, accion: action + '_PERIODO', modulo: 'DECLARATIONS', registroId: current.id,
+        valorAnterior: { estado: current.estado }, valorNuevo: { estado: transition.to, motivo: motivo.trim() }, resultado: 'OK' }, tx);
+      return result;
+    });
+  }
+
+  async reporte(companyId: string, declarationId: string, version: number) {
+    if (!Number.isInteger(version) || version < 1) throw new BadRequestException('Versión inválida.');
+    const revision = await this.prisma.declarationRevision.findFirst({
+      where: { declarationId, version, declaration: { companyId } },
+    });
+    if (!revision) throw new NotFoundException('Versión no encontrada para esta empresa.');
+    const snapshot = revision.snapshot as Record<string, any>;
+    return {
+      filename: `papel_trabajo_${snapshot.anio}_${snapshot.mes}_${snapshot.periodicidad}_v${version}.csv`,
+      content: declarationReport(snapshot, version, revision.createdAt),
+    };
+  }
+
+  async saldoAnterior(companyId: string, mes: number, anio: number, periodicidad = 'MENSUAL') {
+    this.validarPeriodo(mes, anio, periodicidad);
+    if (periodicidad === 'ANUAL') throw new BadRequestException('Esta consulta corresponde a saldos de IVA mensuales o semestrales.');
+    const previous = new Date(Date.UTC(anio, mes - 1 - (periodicidad === 'SEMESTRAL' ? 6 : 1), 1));
+    const declaration = await this.prisma.taxDeclaration.findUnique({
+      where: { companyId_mes_anio_periodicidad: { companyId, mes: previous.getUTCMonth() + 1, anio: previous.getUTCFullYear(), periodicidad } },
+    });
+    if (!declaration) throw new NotFoundException('No hay papel de trabajo del período anterior. Ingresa los saldos de tu declaración del SRI en la conciliación.');
+    const revision = await this.prisma.declarationRevision.findFirst({ where: { declarationId: declaration.id }, orderBy: { version: 'desc' } });
+    const filing = revision && await this.prisma.taxFiling.findFirst({
+      where: { declarationId: declaration.id, revision: revision.version, formulario: '104', tipo: 'PRESENTACION' },
+      orderBy: { createdAt: 'desc' }, select: { numero: true, fecha: true },
+    });
+    if (!revision || !filing) throw new ConflictException('La última versión del período anterior no tiene respaldo de presentación del formulario 104 registrado. No se trasladan saldos desde borradores.');
+    const snapshot = revision.snapshot as Record<string, any>;
+    const liquidacion = snapshot.liquidacion;
+    if (liquidacion?.conciliado !== true || !['creditoSiguienteCompras', 'creditoSiguienteRetenciones'].every(key => /^\d{1,9}\.\d{2}$/.test(String(liquidacion[key])))) {
+      throw new ConflictException('La versión anterior no tiene saldos conciliados separados por origen. Revisa la declaración del SRI.');
+    }
+    return { mes: declaration.mes, anio: declaration.anio, revision: revision.version, respaldo: filing.numero,
+      creditoAnteriorCompras: liquidacion.creditoSiguienteCompras, creditoAnteriorRetenciones: liquidacion.creditoSiguienteRetenciones,
+      aviso: 'Propuesta tomada del papel de trabajo con presentación registrada manualmente. Compara ambos saldos con la declaración del SRI antes de aceptarlos.' };
+  }
+
   async registrarEvidencia(dto: FilingDto, userId: string) {
     const fecha = new Date(dto.fecha);
     if (fecha > new Date()) throw new BadRequestException('La fecha no puede estar en el futuro.');
@@ -244,7 +321,12 @@ export class DeclarationsService {
   ): Promise<T & { revision: number }> {
     return this.prisma.$transaction(async tx => {
       // Serializa el ejercicio para comprobar solapamientos entre meses y semestres.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), hashtext(${String(anio)}))`;
+      if (action === 'GENERAR_BORRADOR') {
+        const first = periodicidad === 'ANUAL' ? 1 : periodicidad === 'SEMESTRAL' ? mes - 5 : mes;
+        await assertPeriodOpen(tx, companyId, Array.from({ length: mes - first + 1 }, (_, i) => new Date(Date.UTC(anio, first - 1 + i, 1))));
+      }
       const solapamientos = periodicidad === 'ANUAL' ? 0 : await tx.taxDeclaration.count({ where: {
         companyId, anio,
         OR: [{ estado: 'PRESENTADA_LOCAL' }, { revisions: { some: { action: 'REGISTRO_MANUAL' } } }, { filings: { some: { tipo: 'PRESENTACION' } } }],
@@ -253,6 +335,9 @@ export class DeclarationsService {
       } });
       if (solapamientos) throw new BadRequestException('Existe un período superpuesto registrado como presentado. Concilia las presentaciones antes de generar o registrar este período para evitar duplicar valores.');
       const previous = await tx.taxDeclaration.findUnique({ where: { companyId_mes_anio_periodicidad: { companyId, mes, anio, periodicidad } } });
+      if (previous && ['EN_REVISION', 'APROBADA', 'CERRADA'].includes(previous.estado) && ['GENERAR_BORRADOR', 'REGISTRO_MANUAL'].includes(action)) {
+        throw new ConflictException('El período está en revisión, aprobado o cerrado. Reábrelo con justificación antes de cambiar los cálculos.');
+      }
       const result = await mutation(tx);
       const last = await tx.declarationRevision.findFirst({ where: { declarationId: result.id }, orderBy: { version: 'desc' } });
       await tx.declarationRevision.create({ data: {

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Query, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsInt, IsUUID, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
+import { IsIn, IsInt, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AdjustmentsDto, FilingDto } from './adjustments.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,6 +30,12 @@ class GenerarDeclaracionDto {
   anio!: number;
 }
 
+class PeriodWorkflowDto extends GenerarDeclaracionDto {
+  @IsIn(['REVISAR', 'APROBAR', 'CERRAR', 'REABRIR']) accion!: string;
+  @IsInt() @Min(1) revision!: number;
+  @IsString() @MinLength(10) @MaxLength(1000) motivo!: string;
+}
+
 @ApiTags('declarations')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -53,6 +59,24 @@ export class DeclarationsController {
     return this.declarations.archivoEvidencia(companyId, id);
   }
   constructor(private readonly declarations: DeclarationsService) {}
+
+  @Post('workflow')
+  @RequirePermissions('declaraciones.presentar')
+  workflow(@Body() dto: PeriodWorkflowDto, @CurrentUser() user: { userId: string }) {
+    return this.declarations.workflow(dto.companyId, dto.mes, dto.anio, dto.periodicidad ?? 'MENSUAL', dto.accion, dto.revision, dto.motivo, user.userId);
+  }
+
+  @Get('report')
+  @RequirePermissions('declaraciones.generar')
+  reporte(@Query('companyId') companyId: string, @Query('declarationId') declarationId: string, @Query('version') version: string) {
+    return this.declarations.reporte(companyId, declarationId, Number(version));
+  }
+
+  @Get('previous-balance')
+  @RequirePermissions('declaraciones.generar')
+  saldoAnterior(@Query('companyId') companyId: string, @Query('mes') mes: string, @Query('anio') anio: string, @Query('periodicidad') periodicidad?: string) {
+    return this.declarations.saldoAnterior(companyId, Number(mes), Number(anio), periodicidad);
+  }
 
   @Get('history')
   @RequirePermissions('declaraciones.generar')

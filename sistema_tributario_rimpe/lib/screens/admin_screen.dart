@@ -42,6 +42,38 @@ class _AdminScreenState extends State<AdminScreen> {
       await _load();
     } catch (_) { if (mounted) setState(() { _loading = false; _error = 'No se pudo cambiar el acceso.'; }); }
   }
+
+  Future<void> _edit(dynamic user) async {
+    var nombre = user['nombre'] as String? ?? '';
+    var identity = user['ruc'] as String? ?? '';
+    final form = GlobalKey<FormState>();
+    final values = await showDialog<Map<String, String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Editar datos de la cuenta'),
+      content: SingleChildScrollView(child: Form(key: form, child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('${user['email']}'),
+        const SizedBox(height: 16),
+        TextFormField(initialValue: nombre, onChanged: (v) => nombre = v, maxLength: 160, decoration: const InputDecoration(labelText: 'Nombre completo'),
+          validator: (v) => (v ?? '').trim().isEmpty ? 'Ingresa el nombre.' : null),
+        TextFormField(initialValue: identity, onChanged: (v) => identity = v, maxLength: 13, keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Cédula o RUC'),
+          validator: (v) => RegExp(r'^(?:[0-9]{10}|[0-9]{13})$').hasMatch((v ?? '').trim()) ? null : 'Ingresa 10 o 13 dígitos.'),
+        const Text('Al cambiar la identificación se cerrarán sus sesiones. La persona deberá ingresar con su nueva cédula o RUC y su contraseña actual. Los datos tributarios de sus empresas se editan en Empresas.'),
+      ]))),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+        FilledButton(onPressed: () { if (form.currentState!.validate()) Navigator.pop(context, {'nombre': nombre.trim(), 'ruc': identity.trim()}); }, child: const Text('Guardar cambios'))],
+    ));
+    if (values == null || !mounted) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      await widget.api.post('/api/admin/users/${user['id']}/profile', body: values);
+      await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Datos de la cuenta actualizados.')));
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.mensaje; });
+    } catch (_) {
+      if (mounted) setState(() { _loading = false; _error = 'No se pudieron guardar los cambios.'; });
+    }
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Administración'), actions: [IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh))]),
@@ -51,12 +83,13 @@ class _AdminScreenState extends State<AdminScreen> {
       const SizedBox(height: 16),
       const Text('Últimas 100 cuentas. Las actualizaciones de la aplicación se publican desde Vercel.'),
       ..._users.map((u) => Card(child: ListTile(
-        title: Text(u['nombre'] as String), subtitle: Text('${u['ruc'] ?? 'Sin RUC'} · ${u['email']}\n'
+        title: Text(u['nombre'] as String), subtitle: Text('${u['ruc'] ?? 'Sin identificación'} · ${u['email']}\n'
           '${u['platformAdmin'] == true ? 'Administrador' : 'Usuario'} · ${u['activo'] == true ? 'Activo' : 'Suspendido'}'),
         trailing: u['id'] == _currentUserId ? const Text('Tu cuenta · Admin') : PopupMenuButton<String>(
           tooltip: 'Administrar cuenta',
-          onSelected: (action) { if (action == 'role') { _changeRole(u); } else { _toggle(u); } },
+          onSelected: (action) { if (action == 'edit') { _edit(u); } else if (action == 'role') { _changeRole(u); } else { _toggle(u); } },
           itemBuilder: (_) => [
+            const PopupMenuItem(value: 'edit', child: Text('Editar nombre y cédula / RUC')),
             if (u['activo'] == true || u['platformAdmin'] == true)
               PopupMenuItem(value: 'role', child: Text(u['platformAdmin'] == true ? 'Retirar administrador' : 'Hacer administrador')),
             if (u['platformAdmin'] != true)

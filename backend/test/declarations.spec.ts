@@ -44,7 +44,7 @@ describe('Papel de trabajo 103 y104', () => {
 
   it('no genera un semestre que incluye una presentación mensual registrada', async () => {
     const prisma: any = { voucher: { findMany: jest.fn().mockResolvedValue([]) },
-      taxDeclaration: { count: jest.fn().mockResolvedValue(1), upsert: jest.fn() } };
+      taxDeclaration: { count: jest.fn(async ({where}) => where.estado === 'CERRADA' ? 0 : 1), upsert: jest.fn() } };
     await expect(new DeclarationsService(transaccional(prisma), {} as any)
       .generarParaPeriodo('empresa', 6, 2026, 'usuario', 'SEMESTRAL')).rejects.toThrow('superpuesto');
     expect(prisma.taxDeclaration.upsert).not.toHaveBeenCalled();

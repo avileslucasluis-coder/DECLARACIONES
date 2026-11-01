@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'screens/help_screen.dart';
 import 'utils/app_theme.dart';
 import 'services/auth_service.dart';
 import 'services/company_service.dart';
@@ -99,6 +100,7 @@ class _RootShellState extends State<RootShell> {
     const _Destino('Declaraciones', Icons.fact_check_outlined, Icons.fact_check),
     const _Destino('Obligaciones', Icons.rule_folder_outlined, Icons.rule_folder),
     const _Destino('SRI · Pruebas', Icons.cloud_upload_outlined, Icons.cloud_upload),
+    const _Destino('Ayuda', Icons.help_outline, Icons.help),
   ];
 
   List<Widget> get _paginas => [
@@ -110,6 +112,7 @@ class _RootShellState extends State<RootShell> {
         DeclaracionesScreen(companies: _companies, declarations: _declarations, ats: _ats),
         ObligacionesScreen(companies: _companies, obligations: _obligations),
         SriScreen(companies: _companies, sri: _sri),
+        const HelpScreen(),
       ];
 
   Future<void> _cerrarSesion() async {

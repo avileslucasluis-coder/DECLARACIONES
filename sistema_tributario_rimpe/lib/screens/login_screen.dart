@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'help_screen.dart';
 import '../services/auth_service.dart';
 import '../services/api_exception.dart';
 import '../utils/app_theme.dart';
@@ -157,6 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpScreen())), child: const Text('Ayuda, soporte y privacidad')),
                   if (!_modoRegistro)
                     TextButton(
                       onPressed: _cargando ? null : _recuperar,

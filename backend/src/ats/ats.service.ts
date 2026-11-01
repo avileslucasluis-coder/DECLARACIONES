@@ -10,6 +10,7 @@ import { AtsReviewDto } from './ats-review.dto';
 import { validarXsd } from './ats-xsd';
 import { AtsOperationDto } from './ats-operation.dto';
 import { operationTypes, operationSchema, appendFields, validateOperation } from './ats-operation-schema';
+import { assertPeriodOpen } from '../declarations/period-lock';
 
 export interface ErrorValidacionAts { campo: string; mensaje: string; }
 type Linked = { voucher: any; soporte: RetencionFuente };
@@ -39,6 +40,7 @@ export class AtsService {
       d.numeroRecap, d.rucFideicomiso, d.idBeneficiario, d.idRetenido])).digest('hex');
     try {
       return await this.prisma.$transaction(async tx => {
+        await assertPeriodOpen(tx, dto.companyId, [new Date(Date.UTC(dto.anio, dto.mes - 1, 1))]);
         // Serialize changes within the period, including overlapping annulled ranges.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.companyId + ':' + dto.anio + ':' + dto.mes}))`;
         if (dto.kind === 'ANULADO') {
@@ -64,6 +66,7 @@ export class AtsService {
         if (dto.id) {
           previous = await tx.atsOperation.findFirst({ where:{id:dto.id, companyId:dto.companyId} });
           if (!previous) throw new NotFoundException('Operación no encontrada.');
+          if (previous.mes !== dto.mes || previous.anio !== dto.anio) throw new BadRequestException('No se puede trasladar una operación a otro período al editarla.');
           const updated = await tx.atsOperation.updateMany({ where:{id:dto.id, companyId:dto.companyId, version:dto.version ?? -1}, data:{...data,version:{increment:1}} });
           if (!updated.count) throw new ConflictException('La operación cambió. Recarga antes de editar.');
           record = await tx.atsOperation.findUniqueOrThrow({ where:{id:dto.id} });
@@ -80,8 +83,10 @@ export class AtsService {
 
   async removeOperation(companyId: string, id: string, version: number, userId: string) {
     return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
       const previous = await tx.atsOperation.findFirst({ where:{id,companyId} });
       if (!previous) throw new NotFoundException('Operación no encontrada.');
+      await assertPeriodOpen(tx, companyId, [new Date(Date.UTC(previous.anio, previous.mes - 1, 1))]);
       const result = await tx.atsOperation.deleteMany({ where:{id,companyId,version} });
       if (!result.count) throw new ConflictException('La operación cambió. Recarga antes de eliminar.');
       await this.audit.registrar({ userId,companyId,accion:'ELIMINAR_OPERACION_ATS',modulo:'ATS',registroId:id,valorAnterior:previous.data,resultado:'OK' },tx);
@@ -92,11 +97,13 @@ export class AtsService {
   async guardarRevision(dto: AtsReviewDto, userId: string) {
     const { companyId, voucherId, ...datos } = dto;
     return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
       const anterior = await tx.voucher.findFirst({ where: { id: voucherId, companyId } });
       if (!anterior) throw new NotFoundException('Comprobante no encontrado.');
       const fechaRegistro = dto.fechaRegistro ? new Date(dto.fechaRegistro + 'T00:00:00.000Z') : undefined;
       if (fechaRegistro && (anterior.direccion !== 'COMPRA' || !Number.isFinite(fechaRegistro.getTime()) || fechaRegistro.toISOString().slice(0,10) !== dto.fechaRegistro || dto.fechaRegistro! < anterior.fechaEmision.toISOString().slice(0,10)))
         throw new BadRequestException('La fecha contable solo aplica a compras y no puede ser anterior a la emisión.');
+      await assertPeriodOpen(tx, companyId, [anterior.fechaEmision, anterior.fechaRegistroAts ?? anterior.fechaEmision, fechaRegistro ?? anterior.fechaEmision]);
       await tx.voucher.update({ where: { id: voucherId }, data: { ...(fechaRegistro ? { fechaRegistroAts: fechaRegistro } : {}), atsRevision: { ...datos, revisadoPor: userId, fecha: new Date().toISOString() } } });
       await this.audit.registrar({ userId, companyId, modulo: 'ATS', accion: 'REVISAR_COMPROBANTE_ATS',
         registroId: voucherId, valorAnterior: anterior.atsRevision, valorNuevo: datos, resultado: 'OK' }, tx);

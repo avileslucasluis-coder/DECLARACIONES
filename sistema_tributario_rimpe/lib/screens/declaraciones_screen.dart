@@ -13,6 +13,7 @@ import 'tax_adjustments_screen.dart';
 import 'ats_review_screen.dart';
 import 'ats_operations_screen.dart';
 import 'filings_screen.dart';
+import 'period_control_screen.dart';
 
 class DeclaracionesScreen extends StatefulWidget {
   final CompanyService companies;
@@ -32,7 +33,7 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
   String _periodicidad = 'MENSUAL';
   Map<String, String>? _ajustes;
 
-  Future<void> _conciliar() async {
+  Future<void> _conciliar({bool usarAnterior = false}) async {
     if (_seleccionada == null) return;
     if (_ajustes == null) {
       try {
@@ -50,18 +51,63 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
       }
     }
     if (!mounted) return;
+    var initial = Map<String, String>.from(_ajustes ?? {});
+    if (usarAnterior) {
+      final companyId = _seleccionada!.id;
+      final mes = _mes, anio = _anio, periodicidad = _periodicidad;
+      try {
+        final data = await widget.declarations.api.get('/api/declarations/previous-balance', query: {
+          'companyId': companyId, 'mes': '$mes', 'anio': '$anio', 'periodicidad': periodicidad,
+        }) as Map;
+        if (!mounted || _seleccionada?.id != companyId || _mes != mes || _anio != anio || _periodicidad != periodicidad) return;
+        final accepted = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+          title: const Text('Revisar saldos anteriores'),
+          content: Text('${data['aviso']}\n\nPeríodo: ${data['mes']}/${data['anio']} · versión ${data['revision']}\nRespaldo: ${data['respaldo']}\nAdquisiciones: \$${data['creditoAnteriorCompras']}\nRetenciones: \$${data['creditoAnteriorRetenciones']}\n\nAl aceptar se reemplazan únicamente los dos saldos anteriores en el formulario de conciliación.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Coinciden con mi declaración'))],
+        ));
+        if (!mounted || accepted != true) return;
+        initial.addAll({'creditoAnteriorCompras': '${data['creditoAnteriorCompras']}', 'creditoAnteriorRetenciones': '${data['creditoAnteriorRetenciones']}'});
+      } on ApiException catch (e) {
+        if (mounted) setState(() => _error = e.mensaje);
+        return;
+      }
+    }
+    if (!mounted) return;
     final result = await Navigator.push<Map<String, String>>(context, MaterialPageRoute(builder: (_) =>
-      TaxAdjustmentsScreen(annual: _periodicidad == 'ANUAL', regimen: _seleccionada!.regimen, initial: _ajustes ?? {})));
+      TaxAdjustmentsScreen(annual: _periodicidad == 'ANUAL', regimen: _seleccionada!.regimen, initial: initial)));
     if (mounted && result != null) setState(() { _ajustes = result; _resultado = null; });
   }
 
   TaxDeclarationResult? _resultado;
+  bool _descargando = false;
+
+  Future<void> _descargarReporte() async {
+    final result = _resultado;
+    final company = _seleccionada;
+    if (result == null || company == null) return;
+    setState(() { _descargando = true; _error = null; });
+    try {
+      final data = await widget.declarations.api.get('/api/declarations/report', query: {
+        'companyId': company.id, 'declarationId': result.id, 'version': '${result.revision}',
+      }) as Map;
+      if (!mounted) return;
+      await Share.shareXFiles([XFile.fromData(Uint8List.fromList(utf8.encode(data['content'] as String)),
+        name: data['filename'] as String, mimeType: 'text/csv')], fileNameOverrides: [data['filename'] as String], subject: 'Sistema Tributario · Papel de trabajo');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.mensaje);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'No se pudo descargar el reporte. Intenta nuevamente.');
+    } finally {
+      if (mounted) setState(() => _descargando = false);
+    }
+  }
   bool _cargandoEmpresas = true;
   bool _generando = false;
   bool _procesandoAts = false;
   bool _presentando = false;
   bool _presentadaLocal = false;
-  bool get _ocupado => _generando || _procesandoAts || _presentando;
+  bool get _ocupado => _generando || _procesandoAts || _presentando || _descargando;
   String? _error;
   AtsValidacion? _validacionAts;
 
@@ -151,7 +197,7 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
               final datos = Map<String, dynamic>.from(v['snapshot'] as Map? ?? {});
               final fecha = DateTime.tryParse(v['createdAt']?.toString() ?? '')?.toLocal();
               return ExpansionTile(
-                title: Text('Versión ${v['version']} · ${v['action'] == 'REGISTRO_MANUAL' ? 'Presentación registrada' : 'Borrador generado'}'),
+                title: Text('Versión ${v['version']} · ${v['action']}'),
                 subtitle: Text(fecha?.toString().split('.').first ?? 'Fecha no disponible'),
                 children: [
                   ListTile(title: const Text('Estado'), subtitle: Text('${datos['estado'] ?? '—'}')),
@@ -324,6 +370,17 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                               : const Icon(Icons.calculate),
                           label: Text(_generando ? 'Calculando...' : 'Generar papel de trabajo ${_periodicidad == 'ANUAL' ? 'anual' : _periodicidad == 'SEMESTRAL' ? 'semestral' : 'mensual'}'),
                         ),
+                        if (_periodicidad != 'ANUAL') TextButton.icon(
+                          onPressed: _ocupado || _seleccionada == null ? null : () => _conciliar(usarAnterior: true),
+                          icon: const Icon(Icons.compare_arrows),
+                          label: const Text('Revisar saldos del período anterior'),
+                        ),
+                        TextButton.icon(
+                          onPressed: _ocupado || _seleccionada == null ? null : () async {
+                            await Navigator.push(context, MaterialPageRoute(builder: (_) => PeriodControlScreen(service: widget.declarations,
+                              companyId: _seleccionada!.id, mes: _mes, anio: _anio, periodicidad: _periodicidad)));
+                            if (mounted) setState(() => _resultado = null);
+                          }, icon: const Icon(Icons.lock_outline), label: const Text('Revisar y cerrar período')),
                         TextButton.icon(
                           onPressed: _ocupado ? null : _verHistorial,
                           icon: const Icon(Icons.history),
@@ -338,6 +395,8 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                   Text(_error!, style: TextStyle(color: AppTheme.danger)),
                 ],
                 if (_resultado != null) ...[
+                  OutlinedButton.icon(onPressed: _ocupado ? null : _descargarReporte,
+                    icon: const Icon(Icons.download), label: Text(_descargando ? 'Preparando reporte…' : 'Descargar papel de trabajo (Excel / CSV)')),
                   const SizedBox(height: 20),
                   OutlinedButton.icon(icon: const Icon(Icons.attach_file), label: const Text('Registrar presentación o pago'),
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FilingsScreen(
