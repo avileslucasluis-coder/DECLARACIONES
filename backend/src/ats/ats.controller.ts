@@ -7,6 +7,13 @@ import { RequirePermissions } from '../rbac/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AtsService } from './ats.service';
 import { AtsReviewDto } from './ats-review.dto';
+import { AtsOperationDto } from './ats-operation.dto';
+
+class RemoveOperationDto {
+  @IsUUID() companyId!: string;
+  @IsUUID() id!: string;
+  @IsInt() @Min(1) version!: number;
+}
 
 class AtsPeriodoDto {
   @IsUUID()
@@ -28,6 +35,23 @@ class AtsPeriodoDto {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('api/ats')
 export class AtsController {
+  @Get('operation-schemas')
+  @RequirePermissions('ats.validar')
+  schemas() { return this.ats.schemas(); }
+
+  @Get('operations')
+  @RequirePermissions('ats.validar')
+  operations(@Query('companyId') companyId:string, @Query('mes') mes:string, @Query('anio') anio:string) {
+    return this.ats.operations(companyId,Number(mes),Number(anio));
+  }
+
+  @Post('operations')
+  @RequirePermissions('ats.generate')
+  saveOperation(@Body() dto:AtsOperationDto, @CurrentUser() user:{userId:string}) { return this.ats.saveOperation(dto,user.userId); }
+
+  @Post('operations/remove')
+  @RequirePermissions('ats.generate')
+  removeOperation(@Body() dto:RemoveOperationDto, @CurrentUser() user:{userId:string}) { return this.ats.removeOperation(dto.companyId,dto.id,dto.version,user.userId); }
   @Get('review')
   @RequirePermissions('ats.validar')
   revisar(@Query('companyId') companyId: string, @Query('mes') mes: string, @Query('anio') anio: string) {

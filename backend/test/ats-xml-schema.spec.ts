@@ -36,6 +36,7 @@ describe('ATS generado por el servicio — validación XSD', () => {
     const prisma = {
       company: { findUnique: jest.fn().mockResolvedValue(company), findUniqueOrThrow: jest.fn().mockResolvedValue(company) },
       voucher: { findMany: jest.fn().mockResolvedValue(vouchers) },
+      atsOperation: { findMany: jest.fn().mockResolvedValue([]) },
       establishment: { count: jest.fn().mockResolvedValue(1) },
       atsReport: { upsert: jest.fn().mockResolvedValue({ id: 'reporte' }) },
     };

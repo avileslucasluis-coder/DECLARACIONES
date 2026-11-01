@@ -16,6 +16,7 @@
     "test:smoke": "node scripts/smoke-test.cjs",
     "test:integration": "node scripts/integration-isolated.cjs",
     "check:production": "node scripts/preflight-production.cjs",
+    "check:database": "node scripts/check-database.cjs",
     "check:deployment": "node scripts/check-deployment.cjs",
     "backup:verify": "node scripts/verify-backup.cjs"
   },

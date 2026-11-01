@@ -35,7 +35,7 @@ class _AtsReviewScreenState extends State<AtsReviewScreen> {
     final guardar = await showDialog<bool>(context: context, builder: (context) => StatefulBuilder(builder: (context, update) => AlertDialog(
       title: const Text('Revisión tributaria del comprobante'),
       content: SizedBox(width: 460, child: SingleChildScrollView(child: Form(key: form, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Confirma estos datos con el comprobante y su tratamiento tributario. Las operaciones especiales no se generan con este ATS local.'),
+        const Text('Confirma estos datos con el comprobante y su tratamiento tributario. Para exportaciones y reembolsos utiliza Operaciones especiales y vincula el comprobante.'),
         CheckboxListTile(contentPadding: EdgeInsets.zero, title: const Text('Es una operación local sin tratamiento especial'), value: local, onChanged: (v) => update(() => local = v ?? false)),
         DropdownButtonFormField<String>(initialValue: relacionada, decoration: const InputDecoration(labelText: '¿Existe relación entre las partes?'), items: const [DropdownMenuItem(value: 'SI', child: Text('Sí')), DropdownMenuItem(value: 'NO', child: Text('No'))], onChanged: (v) => relacionada = v, validator: (v) => v == null ? 'Selecciona una opción' : null),
         if (item['direccion'] == 'COMPRA') TextFormField(controller: sustento, decoration: const InputDecoration(labelText: 'Código de sustento tributario (2 dígitos)'), validator: (v) => RegExp(r'^\d{2}$').hasMatch(v ?? '') ? null : 'Ingresa el código aplicable'),

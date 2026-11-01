@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { create } from 'xmlbuilder2';
 import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -8,6 +8,8 @@ import { leerFuenteAts, codigoDocumentoSri, FuenteAts, RetencionFuente } from '.
 import { tipoIdentificacionAts } from './ats-metadata';
 import { AtsReviewDto } from './ats-review.dto';
 import { validarXsd } from './ats-xsd';
+import { AtsOperationDto } from './ats-operation.dto';
+import { operationTypes, operationSchema, appendFields, validateOperation } from './ats-operation-schema';
 
 export interface ErrorValidacionAts { campo: string; mensaje: string; }
 type Linked = { voucher: any; soporte: RetencionFuente };
@@ -21,6 +23,71 @@ const camposIva: Record<string,string> = { '10':'valRetBien10', '20':'valRetServ
 @Injectable()
 export class AtsService {
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+
+  schemas() { return Object.keys(operationTypes).map(operationSchema); }
+
+  async operations(companyId: string, mes: number, anio: number) {
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12 || !Number.isInteger(anio) || anio < 2000 || anio > 2100) throw new BadRequestException('Período inválido.');
+    return this.prisma.atsOperation.findMany({ where: { companyId, mes, anio }, orderBy: { createdAt:'asc' } });
+  }
+
+  async saveOperation(dto: AtsOperationDto, userId: string) {
+    await validateOperation(dto.kind, dto.data, dto.mes, dto.anio);
+    const d = dto.data;
+    const identity = createHash('sha256').update(JSON.stringify([operationTypes[dto.kind].section, d.idProv ?? d.idClienteEx ?? d.identificacionRecap,
+      d.tipoComprobante, d.establecimiento, d.puntoEmision, d.secuencial ?? d.secuencialInicio, d.autorizacion, d.codSustento,
+      d.numeroRecap, d.rucFideicomiso, d.idBeneficiario, d.idRetenido])).digest('hex');
+    try {
+      return await this.prisma.$transaction(async tx => {
+        // Serialize changes within the period, including overlapping annulled ranges.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.companyId + ':' + dto.anio + ':' + dto.mes}))`;
+        if (dto.kind === 'ANULADO') {
+          const records = await tx.atsOperation.findMany({where:{companyId:dto.companyId,mes:dto.mes,anio:dto.anio,kind:'ANULADO',...(dto.id ? {id:{not:dto.id}} : {})}});
+          if (records.some(record => {
+            const other = record.data as any;
+            return ['tipoComprobante','establecimiento','puntoEmision','autorizacion'].every(k => other[k] === d[k]) && BigInt(other.secuencialInicio) <= BigInt(d.secuencialFin) && BigInt(d.secuencialInicio) <= BigInt(other.secuencialFin);
+          })) throw new ConflictException('El rango de anulados se superpone con otro registro.');
+        }
+        if (dto.voucherId) {
+          const voucher = await tx.voucher.findFirst({ where: { id:dto.voucherId, companyId:dto.companyId } });
+          if (!voucher) throw new NotFoundException('Comprobante vinculado no encontrado.');
+          const direction = operationTypes[dto.kind].section === 'compras' ? 'COMPRA' : dto.kind === 'EXPORTACION' ? 'VENTA' : null;
+          if (direction !== voucher.direccion) throw new BadRequestException('El comprobante vinculado no corresponde al tipo de operación.');
+          const date = voucher.direccion === 'COMPRA' ? voucher.fechaRegistroAts ?? voucher.fechaEmision : voucher.fechaEmision;
+          if (date.getUTCFullYear() !== dto.anio || date.getUTCMonth() + 1 !== dto.mes) throw new BadRequestException('El comprobante vinculado pertenece a otro período contable.');
+          if (dto.data.autorizacion !== voucher.claveAcceso) throw new BadRequestException('La autorización debe coincidir con el comprobante vinculado.');
+        }
+        const data = { companyId:dto.companyId, mes:dto.mes, anio:dto.anio, kind:dto.kind, reference:dto.reference, identity,
+          voucherId:dto.voucherId ?? null, data:dto.data as Prisma.InputJsonValue, actorId:userId };
+        let record;
+        let previous;
+        if (dto.id) {
+          previous = await tx.atsOperation.findFirst({ where:{id:dto.id, companyId:dto.companyId} });
+          if (!previous) throw new NotFoundException('Operación no encontrada.');
+          const updated = await tx.atsOperation.updateMany({ where:{id:dto.id, companyId:dto.companyId, version:dto.version ?? -1}, data:{...data,version:{increment:1}} });
+          if (!updated.count) throw new ConflictException('La operación cambió. Recarga antes de editar.');
+          record = await tx.atsOperation.findUniqueOrThrow({ where:{id:dto.id} });
+        } else record = await tx.atsOperation.create({data});
+        await this.audit.registrar({ userId,companyId:dto.companyId,accion:'GUARDAR_OPERACION_ATS',modulo:'ATS',registroId:record.id,
+          valorAnterior:previous?.data,valorNuevo:{kind:dto.kind,reference:dto.reference,data:dto.data},resultado:'OK' },tx);
+        return record;
+      });
+    } catch (error) {
+      if ((error as any).code === 'P2002') throw new ConflictException('Este documento o comprobante vinculado ya tiene una operación ATS en el período.');
+      throw error;
+    }
+  }
+
+  async removeOperation(companyId: string, id: string, version: number, userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const previous = await tx.atsOperation.findFirst({ where:{id,companyId} });
+      if (!previous) throw new NotFoundException('Operación no encontrada.');
+      const result = await tx.atsOperation.deleteMany({ where:{id,companyId,version} });
+      if (!result.count) throw new ConflictException('La operación cambió. Recarga antes de eliminar.');
+      await this.audit.registrar({ userId,companyId,accion:'ELIMINAR_OPERACION_ATS',modulo:'ATS',registroId:id,valorAnterior:previous.data,resultado:'OK' },tx);
+      return { eliminado:true };
+    });
+  }
 
   async guardarRevision(dto: AtsReviewDto, userId: string) {
     const { companyId, voucherId, ...datos } = dto;
@@ -84,17 +151,47 @@ export class AtsService {
       cero: f.base0 ?? v.baseImponibleIva0, gravada: f.baseGravada ?? v.baseImponibleIva, iva: v.montoIva };
   }
 
-  async validar(companyId: string, mes: number, anio: number) {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+  async validar(companyId: string, mes: number, anio: number, snapshot?: { company:any; vouchers:any[]; operations:any[] }) {
+    const company = snapshot?.company ?? await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Empresa no encontrada.');
-    const vouchers = await this.obtenerDetalle(companyId, mes, anio);
+    const vouchers = snapshot?.vouchers ?? await this.obtenerDetalle(companyId, mes, anio);
+    const operations = snapshot?.operations ?? await this.operations(companyId, mes, anio);
+    const replaced = new Set(operations.map(o => o.voucherId).filter(Boolean));
     const errores: ErrorValidacionAts[] = [];
-    const advertencias: ErrorValidacionAts[] = [{ campo: 'alcance', mensaje: 'ATS de operaciones locales. Revisa el catálogo de sustento aplicable. Exportaciones, reembolsos, importaciones y otras operaciones especiales requieren un módulo específico y no deben registrarse como compras locales.' }];
+    const advertencias: ErrorValidacionAts[] = [{ campo: 'alcance', mensaje: 'Concilia los comprobantes y operaciones complementarias con tus registros. La validación estructural no equivale a aceptación del SRI ni confirma por sí sola los catálogos y tratamientos tributarios.' }];
     if (!/^\d{10}001$/.test(company.ruc)) errores.push({ campo: 'company.ruc', mensaje: 'RUC del informante incompatible con el XSD.' });
-    if (company.realizaOperacionesExterior === true) errores.push({ campo: 'company.realizaOperacionesExterior', mensaje: 'El perfil indica operaciones con el exterior. Este generador local no produce un ATS completo para ese alcance.' });
+    if (company.realizaOperacionesExterior === true && !operations.some(o => ['IMPORTACION','EXPORTACION','COMPRA_ESPECIAL'].includes(o.kind))) advertencias.push({ campo:'exterior', mensaje:'El perfil indica operaciones con el exterior, pero no hay registros complementarios en este período. Confirma que no falten operaciones.' });
+    for (const operation of operations) {
+      try { await validateOperation(operation.kind, operation.data as any, mes, anio); }
+      catch (error) { errores.push({ campo:operation.id,mensaje:(error as Error).message }); }
+      const d = operation.data as any;
+      if (!operation.voucherId && vouchers.some(v => ['COMPRA','VENTA'].includes(v.direccion) && v.claveAcceso === d.autorizacion))
+        errores.push({ campo:operation.id,mensaje:'Vincula el comprobante importado que tiene esta autorización para evitar duplicarlo.' });
+    }
     if (!vouchers.length) advertencias.push({ campo: 'periodo', mensaje: 'No hay comprobantes en este período.' });
     const links = this.vincular(vouchers, errores);
+    for (const operation of operations.filter(o => o.voucherId)) {
+      const voucher = vouchers.find(v => v.id === operation.voucherId);
+      if (!voucher) errores.push({ campo:operation.id, mensaje:'El comprobante vinculado ya no pertenece al período. Revisa la operación.' });
+      const retained = links.get(operation.voucherId!) ?? [];
+      const data = operation.data as any;
+      if (retained.length) {
+        if (operationTypes[operation.kind].section !== 'compras') {
+          errores.push({ campo:operation.id,mensaje:'La exportación tiene retenciones importadas. Requiere conciliar su tratamiento antes de generar el ATS.' });
+          continue;
+        }
+        const taxes = retained.flatMap(r => r.soporte.impuestos);
+        for (const [rate,field] of Object.entries(camposIva)) {
+          const expected = taxes.filter(t => t.codigo === '2' && String(t.porcentaje) === rate).reduce((s,t) => s.plus(t.valor),decimal(0));
+          if (!expected.equals(data[field] ?? 0)) errores.push({campo:operation.id,mensaje:'La retención importada no coincide con ' + field});
+        }
+        const signature = (rows:any[]) => rows.map(r => [r.codigoRetencion ?? r.codRetAir,decimal(r.base ?? r.baseImpAir).toFixed(2),decimal(r.porcentaje ?? r.porcentajeAir).toFixed(2),decimal(r.valor ?? r.valRetAir).toFixed(2)].join('|')).sort().join(';');
+        if (signature(taxes.filter(t => t.codigo === '1')) !== signature(data.air?.detalleAir ?? [])) errores.push({campo:operation.id,mensaje:'Las retenciones de renta no coinciden con los sustentos importados.'});
+        if (retained.length > 2 || retained.some((r,i) => data['autRetencion'+(i+1)] !== r.voucher.claveAcceso)) errores.push({campo:operation.id,mensaje:'Revisa las autorizaciones de las retenciones vinculadas.'});
+      }
+    }
     for (const v of vouchers) {
+      if (replaced.has(v.id)) continue;
       const f = source(v), rev = revision(v);
       if (!/^\d{49}$/.test(v.claveAcceso)) errores.push({ campo: v.id, mensaje: 'Se requiere clave de acceso de 49 dígitos; no se inventará autorización ni numeración.' });
       if (v.direccion === 'NO_RELACIONADO') errores.push({ campo: v.id, mensaje: 'Comprobante no relacionado. Revisa su emisor y destinatario.' });
@@ -116,14 +213,16 @@ export class AtsService {
   }
 
   async generarXml(companyId: string, mes: number, anio: number, userId: string) {
-    const { errores, advertencias } = await this.validar(companyId, mes, anio);
-    if (errores.length) throw new BadRequestException({ message: 'Corrige los datos ATS antes de generar.', errores });
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const vouchers = await this.obtenerDetalle(companyId, mes, anio);
+    const operations = await this.operations(companyId, mes, anio);
+    const { errores, advertencias } = await this.validar(companyId, mes, anio, {company,vouchers,operations});
+    if (errores.length) throw new BadRequestException({ message: 'Corrige los datos ATS antes de generar.', errores });
+    const replaced = new Set(operations.map(o => o.voucherId).filter(Boolean));
     const linkingErrors: ErrorValidacionAts[] = [];
     const links = this.vincular(vouchers, linkingErrors);
     if (linkingErrors.length) throw new BadRequestException('Los comprobantes cambiaron. Vuelve a validar.');
-    const compras = vouchers.filter(v => v.direccion === 'COMPRA'), ventas = vouchers.filter(v => v.direccion === 'VENTA');
+    const compras = vouchers.filter(v => v.direccion === 'COMPRA' && !replaced.has(v.id)), ventas = vouchers.filter(v => v.direccion === 'VENTA' && !replaced.has(v.id));
     const totalVentas = ventas.reduce((s,v) => { const b = this.bases(v); return s.plus(decimal(b.no).plus(b.exenta).plus(b.cero).plus(b.gravada).times(v.tipoComprobante === 'NOTA_CREDITO' ? -1 : 1)); }, decimal(0));
     const doc = create({ version: '1.0', encoding: 'UTF-8' }).ele('iva');
     const put = (node: any, key: string, value: any) => node.ele(key).txt(String(value)).up();
@@ -152,6 +251,9 @@ export class AtsService {
       linked.forEach((l,i) => { const n=i+1, clave=l.voucher.claveAcceso; put(d,'estabRetencion'+n,clave.slice(24,27)); put(d,'ptoEmiRetencion'+n,clave.slice(27,30)); put(d,'secRetencion'+n,clave.slice(30,39)); put(d,'autRetencion'+n,clave); put(d,'fechaEmiRet'+n,fecha(l.voucher.fechaEmision)); });
       if (c.tipoComprobante === 'NOTA_CREDITO') { put(d,'docModificado',f.codigoModificado); put(d,'estabModificado',f.numeroModificado.slice(0,3)); put(d,'ptoEmiModificado',f.numeroModificado.slice(3,6)); put(d,'secModificado',f.numeroModificado.slice(6)); put(d,'autModificado',rev.autorizacionModificado); }
     }
+    for (const operation of operations.filter(o => operationTypes[o.kind].section === 'compras')) {
+      appendFields(comprasEl.ele('detalleCompras'), operationSchema(operation.kind).fields, operation.data as any);
+    }
     const ventasEl = doc.ele('ventas'), grupos = new Map<string, typeof ventas>();
     for (const v of ventas) {
       const key=JSON.stringify([v.identificacionContraparte,v.tipoComprobante,source(v).tipoIdentificacion,revision(v).parteRelacionada]);
@@ -171,10 +273,19 @@ export class AtsService {
       const pagos=[...new Set<string>(group.flatMap(item => revision(item).pagos?.length ? revision(item).pagos : source(item).pagos))];
       if (pagos.length) { const p=d.ele('formasDePago'); pagos.forEach(v=>put(p,'formaPago',v)); }
     }
+    for (const section of ['exportaciones','recap','fideicomisos','anulados','rendFinancieros']) {
+      const records = operations.filter(o => operationTypes[o.kind].section === section);
+      if (!records.length) continue;
+      const node = doc.ele(section);
+      for (const record of records) {
+        const schema = operationSchema(record.kind);
+        appendFields(node.ele(schema.element), schema.fields, record.data as any);
+      }
+    }
     const xml=doc.end({prettyPrint:true});
     await validarXsd(xml);
     const hashArchivo=createHash('sha256').update(xml).digest('hex');
-    const data={ usuarioId:userId, versionCatalogo:'ATS-local-revision-2026-10-31', versionXsd:'ats.xsd-SRI', estado:'VALIDADO_XSD_REVISADO_LOCAL', hashArchivo,
+    const data={ usuarioId:userId, versionCatalogo:'ATS-operaciones-revision-2026-10-31', versionXsd:'ats.xsd-SRI', estado:'VALIDADO_XSD_REVISADO', hashArchivo,
       advertenciasJson:advertencias.map(a=>({...a})), fechaGeneracion:new Date() };
     const reporte=await this.prisma.atsReport.upsert({ where:{companyId_mes_anio:{companyId,mes,anio}}, create:{companyId,mes,anio,...data}, update:data });
     await this.audit.registrar({ userId,companyId,accion:'GENERAR_ATS',modulo:'ATS',registroId:reporte.id,resultado:'OK' });

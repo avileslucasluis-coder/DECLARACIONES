@@ -140,6 +140,7 @@ model Company {
   withholdings    Withholding[]
   declarations    TaxDeclaration[]
   atsReports      AtsReport[]
+  atsOperations   AtsOperation[]
   obligations     TaxObligationInstance[]
   establishments  Establishment[]
   customers       Customer[]
@@ -400,4 +401,24 @@ model AuditLog {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("audit_logs")
+}
+
+model AtsOperation {
+  id String @id @default(uuid())
+  companyId String @map("company_id")
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  mes Int
+  anio Int
+  kind String
+  reference String
+  identity String
+  voucherId String? @map("voucher_id")
+  data Json
+  version Int @default(1)
+  actorId String @map("actor_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([companyId, mes, anio, identity])
+  @@unique([companyId, mes, anio, voucherId])
+  @@map("ats_operations")
 }

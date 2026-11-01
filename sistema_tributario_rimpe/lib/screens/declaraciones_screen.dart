@@ -11,6 +11,7 @@ import '../services/api_exception.dart';
 import '../utils/app_theme.dart';
 import 'tax_adjustments_screen.dart';
 import 'ats_review_screen.dart';
+import 'ats_operations_screen.dart';
 import 'filings_screen.dart';
 
 class DeclaracionesScreen extends StatefulWidget {
@@ -362,6 +363,11 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                               onPressed: _ocupado || _seleccionada == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => AtsReviewScreen(api: widget.ats.api, companyId: _seleccionada!.id, mes: _mes, anio: _anio))),
                               icon: const Icon(Icons.edit_note),
                               label: const Text('Revisar datos ATS'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: _ocupado || _seleccionada == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => AtsOperationsScreen(api: widget.ats.api, companyId: _seleccionada!.id, mes: _mes, anio: _anio))),
+                              icon: const Icon(Icons.post_add),
+                              label: const Text('Operaciones especiales'),
                             ),
                             ElevatedButton.icon(
                               onPressed: _ocupado ? null : _generarYDescargarAts,
