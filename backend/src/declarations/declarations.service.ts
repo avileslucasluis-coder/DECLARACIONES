@@ -19,6 +19,10 @@ export class DeclarationsService {
 
   async generarParaPeriodo(companyId: string, mes: number, anio: number, userId: string, periodicidad = 'MENSUAL', ajustes?: AdjustmentsDto) {
     this.validarPeriodo(mes, anio, periodicidad);
+    if (ajustes === undefined) {
+      const saved = await this.prisma.taxDeclaration.findUnique({where:{companyId_mes_anio_periodicidad:{companyId,mes,anio,periodicidad}}});
+      if (saved?.ajustes && typeof saved.ajustes === 'object' && !Array.isArray(saved.ajustes)) ajustes = saved.ajustes as unknown as AdjustmentsDto;
+    }
     const desde = new Date(Date.UTC(anio, periodicidad === 'ANUAL' ? 0 : periodicidad === 'SEMESTRAL' ? mes - 6 : mes - 1, 1));
     const hasta = new Date(Date.UTC(anio, mes, 1));
 

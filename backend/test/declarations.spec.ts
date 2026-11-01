@@ -10,6 +10,19 @@ function transaccional(prisma: any) {
 }
 
 describe('Papel de trabajo 103 y104', () => {
+  it('recupera la conciliación del mismo período y separa los saldos por origen', async () => {
+    const ajustes = {creditoAnteriorCompras:'0.00',creditoAnteriorRetenciones:'707.62',factorCredito:'1',justificacion:'Saldo de declaración anterior verificada'};
+    const prisma:any = transaccional({voucher:{findMany:jest.fn().mockResolvedValue([{tipoComprobante:'FACTURA',direccion:'COMPRA',baseImponibleIva:'497.96',baseImponibleIva0:'360.83',montoIva:'74.69',montoRentaRetenida:'0'}])},taxDeclaration:{findUnique:jest.fn().mockResolvedValue({id:'decl',ajustes}),upsert:jest.fn(async ({create})=>({id:'decl',...create}))}});
+    const service = new DeclarationsService(prisma,{registrar:jest.fn()} as any);
+    const result = await service.generarParaPeriodo('empresa',10,2026,'usuario');
+    expect((result.liquidacion as any).creditoAnteriorRetenciones).toBe('707.62');
+    expect((result.liquidacion as any).creditoSiguienteCompras).toBe('74.69');
+    expect((result.liquidacion as any).creditoSiguienteRetenciones).toBe('707.62');
+    expect(result.totalAPagar104).toBe(0);
+    expect(prisma.taxDeclaration.upsert.mock.calls[0][0].update.ajustes).toEqual(ajustes);
+    const reset = await service.generarParaPeriodo('empresa',10,2026,'usuario','MENSUAL',{creditoAnteriorRetenciones:'0.00',justificacion:'Corrección sustentada sin saldo anterior'});
+    expect((reset.liquidacion as any).creditoAnteriorRetenciones).toBe('0.00');
+  });
   it.each([[6, '2026-01-01', '2026-07-01'], [12, '2026-07-01', '2027-01-01']])(
     'consolida el semestre de cierre %s con límites independientes de la zona horaria', async (mes, desde, hasta) => {
       const prisma: any = { voucher: { findMany: jest.fn().mockResolvedValue([]) },

@@ -34,6 +34,22 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
 
   Future<void> _conciliar() async {
     if (_seleccionada == null) return;
+    if (_ajustes == null) {
+      try {
+        final companyId = _seleccionada!.id;
+        final mes = _mes, anio = _anio, periodicidad = _periodicidad;
+        final history = await widget.declarations.historial(companyId: companyId, mes: mes, anio: anio, periodicidad: periodicidad);
+        if (!mounted || _seleccionada?.id != companyId || _mes != mes || _anio != anio || _periodicidad != periodicidad) return;
+        if (history.isNotEmpty) {
+          final saved = history.last['snapshot']?['ajustes'];
+          if (saved is Map) _ajustes = saved.map((k,v) => MapEntry(k.toString(), v.toString()));
+        }
+      } on ApiException catch (e) {
+        if (mounted) setState(() => _error = e.mensaje);
+        return;
+      }
+    }
+    if (!mounted) return;
     final result = await Navigator.push<Map<String, String>>(context, MaterialPageRoute(builder: (_) =>
       TaxAdjustmentsScreen(annual: _periodicidad == 'ANUAL', regimen: _seleccionada!.regimen, initial: _ajustes ?? {})));
     if (mounted && result != null) setState(() { _ajustes = result; _resultado = null; });
@@ -299,7 +315,7 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                         ),
                         const SizedBox(height: 16),
                         OutlinedButton.icon(onPressed: _ocupado ? null : _conciliar,
-                          icon: const Icon(Icons.edit_note), label: Text(_ajustes == null ? 'Conciliar saldos y ajustes' : 'Conciliación registrada · editar')),
+                          icon: const Icon(Icons.edit_note), label: Text(_ajustes == null ? 'Saldos iniciales y conciliación' : 'Conciliación preparada · editar')),
                         ElevatedButton.icon(
                           onPressed: _ocupado ? null : _generar,
                           icon: _generando
@@ -461,6 +477,8 @@ class _TarjetaDeclaracion extends StatelessWidget {
             _fila('IVA de compras (revisar derecho a crédito tributario)', resultado.totalIvaCompras),
             const SizedBox(height: 8),
             _fila('IVA que te retuvieron en ventas', resultado.totalIvaRetenidoEnVentas),
+            _fila('Saldo anterior por compras e importaciones', double.tryParse('${resultado.liquidacion['creditoAnteriorCompras'] ?? 0}') ?? 0),
+            _fila('Saldo anterior por retenciones de IVA', double.tryParse('${resultado.liquidacion['creditoAnteriorRetenciones'] ?? 0}') ?? 0),
             const Divider(),
             _fila('IVA propio estimado', resultado.ivaAPagar104),
             _fila('IVA retenido a proveedores', resultado.totalRetencionesIvaAplicadas),
@@ -468,6 +486,10 @@ class _TarjetaDeclaracion extends StatelessWidget {
             if (resultado.creditoTributarioSiguientePeriodo > 0)
               _fila('Crédito tributario a favor (siguiente periodo)', resultado.creditoTributarioSiguientePeriodo,
                   color: AppTheme.secondary),
+            if (resultado.liquidacion.containsKey('creditoSiguienteCompras')) ...[
+              _fila('Del saldo siguiente: compras e importaciones', double.tryParse('${resultado.liquidacion['creditoSiguienteCompras']}') ?? 0),
+              _fila('Del saldo siguiente: retenciones de IVA', double.tryParse('${resultado.liquidacion['creditoSiguienteRetenciones']}') ?? 0),
+            ],
             const SizedBox(height: 20),
             _tituloFormulario('Papel de trabajo para formulario 103 · Retenciones de renta'),
             _fila('Renta retenida a proveedores', resultado.totalRetencionesRentaAplicadas),

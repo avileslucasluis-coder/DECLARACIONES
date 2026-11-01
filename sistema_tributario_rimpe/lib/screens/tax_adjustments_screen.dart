@@ -15,8 +15,8 @@ class _TaxAdjustmentsScreenState extends State<TaxAdjustmentsScreen> {
   static const iva = {
     'factorCredito': 'Factor de crédito tributario (0 a 1)',
     'ivaSinDerechoCredito': 'IVA de compras sin derecho a crédito',
-    'creditoAnteriorCompras': 'Crédito anterior por adquisiciones',
-    'creditoAnteriorRetenciones': 'Crédito anterior por retenciones',
+    'creditoAnteriorCompras': 'Saldo anterior por compras e importaciones',
+    'creditoAnteriorRetenciones': 'Saldo anterior por retenciones de IVA',
     'ajusteCreditoCompras': 'IVA devuelto o rechazado: adquisiciones',
     'ajusteCreditoRetenciones': 'IVA devuelto o rechazado: retenciones',
     'multa104': 'Multa confirmada formulario 104',
@@ -59,6 +59,9 @@ class _TaxAdjustmentsScreenState extends State<TaxAdjustmentsScreen> {
         ? 'Registra importes conciliados del ejercicio. Los XML pueden no incluir todos los ingresos, cobros o gastos. Para RIMPE no ingreses gastos deducibles ni rebaja personal sobre sus ingresos. En sociedades de régimen general confirma la tarifa y su fundamento.'
         : 'Confirma qué IVA de compras da derecho a crédito y el factor aplicable. Los saldos anteriores deben venir de la declaración anterior; no se arrastran automáticamente desde un borrador. Multas e intereses se ingresan desde su cálculo verificado.'),
       const SizedBox(height: 20),
+      if (!widget.annual) const Card(child: Padding(padding: EdgeInsets.all(16), child: Text(
+        '¿Primera declaración en este sistema?\nConsulta tu última declaración válida del SRI correspondiente al período anterior. Registra por separado el saldo por adquisiciones e importaciones y el saldo por retenciones de IVA. En el formulario que usa las casillas 615 y 617, toma esos saldos finales, respectivamente. No copies las compras del mes ni sumes ambos saldos en un solo campo.\n\nEn el respaldo indica el período y número de la declaración. Si no tienes saldo previo, confirma cero. Los datos se guardan al generar el papel de trabajo.'
+      ))),
       ...fields.entries.map((e) {
         final text = ['justificacion', 'fundamentoTarifa'].contains(e.key);
         return Padding(padding: const EdgeInsets.only(bottom: 16), child: TextFormField(

@@ -22,6 +22,8 @@ export function liquidarIva(ventas: Prisma.Decimal, compras: Prisma.Decimal, ret
   const creditoTotal = positive(saldo.negated());
   const comprasFinal = Prisma.Decimal.min(creditoSiguienteCompras, creditoTotal);
   return {
+    creditoAnteriorCompras: amount(n('creditoAnteriorCompras')),
+    creditoAnteriorRetenciones: amount(n('creditoAnteriorRetenciones')),
     ivaComprasConDerechoCredito: amount(creditoCompras),
     ivaAPagar104: amount(positive(saldo)),
     creditoSiguienteCompras: amount(comprasFinal),
