@@ -19,6 +19,11 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar verificador XML independiente para las pruebas de firma
+        run: python -m pip install lxml
       - run: sudo apt-get update && sudo apt-get install -y libxml2-utils
       - run: npm ci --include=dev
       - run: npm run prisma:generate
