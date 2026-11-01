@@ -103011,7 +103011,7 @@ p.push(B.Z)
 p.push(A.dY(B.aeD,new A.az5(a),r))
 if(!s.y)p.push(A.dY(B.aeb,s.z?r:s.gaoA(),r))
 if(!s.y){q=s.z?r:new A.az6(s)
-p.push(A.dY(A.W(s.f?"Ingresar con c\xe9dula o RUC":"Cuenta anterior: ingresar con correo",r,r,r,r,r,r,r),q,r))}q=s.z?r:new A.az7(s)
+p.push(A.dY(A.W(s.f?"Ingresar con c\xe9dula o RUC":"Ingresa con correo",r,r,r,r,r,r,r),q,r))}q=s.z?r:new A.az7(s)
 p.push(A.dY(A.W(s.y?"\xbfYa tienes cuenta? Inicia sesi\xf3n":"\xbfNo tienes cuenta? Reg\xedstrate",r,r,r,r,r,r,r),q,r))
 return A.f4(r,B.j,A.dx(A.ER(new A.d6(B.om,A.kk(r,A.bX(p,B.E,B.q,B.ai),s.d),r),B.dw),r,r),r,r)}}
 A.ayT.prototype={

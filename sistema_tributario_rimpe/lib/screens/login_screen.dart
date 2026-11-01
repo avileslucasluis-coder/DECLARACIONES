@@ -166,7 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   if (!_modoRegistro) TextButton(
                     onPressed: _cargando ? null : () => setState(() => _accesoAnterior = !_accesoAnterior),
-                    child: Text(_accesoAnterior ? 'Ingresar con cédula o RUC' : 'Cuenta anterior: ingresar con correo'),
+                    child: Text(_accesoAnterior ? 'Ingresar con cédula o RUC' : 'Ingresa con correo'),
                   ),
                   TextButton(
                     onPressed: _cargando ? null : () => setState(() => _modoRegistro = !_modoRegistro),
