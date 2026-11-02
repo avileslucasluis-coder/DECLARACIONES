@@ -9,12 +9,34 @@ import { AuditService } from '../audit/audit.service';
 import { declarationReport } from './declaration-report';
 import { declarationSource } from './declaration-source';
 import { assertPeriodOpen } from './period-lock';
+import { taxSource } from './tax-source';
 
 /// Papel de trabajo mensual a partir de comprobantes importados. El 103
 /// contiene retenciones de renta; las retenciones de IVA corresponden al 104.
 /// No sustituye la conciliación ni presenta declaraciones ante el SRI.
 @Injectable()
 export class DeclarationsService {
+  async fuentes(companyId: string, mes: number, anio: number) {
+    this.validarPeriodo(mes, anio, 'MENSUAL');
+    const desde = new Date(Date.UTC(anio, mes - 1, 1));
+    const hasta = new Date(Date.UTC(anio, mes, 1));
+    return this.prisma.$transaction(async tx => {
+      const company = await tx.company.findUnique({ where: { id: companyId } });
+      if (!company) throw new NotFoundException('Empresa no encontrada.');
+      const operations = await tx.atsOperation.findMany({ where: { companyId, mes, anio } });
+      const linkedIds = operations.flatMap(o => o.voucherId ? [o.voucherId] : []);
+      const authorizations = operations.flatMap(o => {
+        const value = (o.data as Record<string, unknown>).autorizacion;
+        return typeof value === 'string' ? [value] : [];
+      });
+      const vouchers = await tx.voucher.findMany({ where: { companyId, OR: [
+        { fechaEmision: { gte: desde, lt: hasta } },
+        { direccion: 'COMPRA', fechaRegistroAts: { gte: desde, lt: hasta } },
+        { id: { in: linkedIds } }, { claveAcceso: { in: authorizations } },
+      ] } });
+      return taxSource(company, vouchers, operations, `${anio}-${String(mes).padStart(2, '0')}`);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,

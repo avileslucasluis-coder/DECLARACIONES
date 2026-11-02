@@ -38,6 +38,7 @@ model User {
   loginHistory  LoginHistory[]
   auditLogs     AuditLog[]
   passwordResets PasswordReset[]
+  periodDecisions PeriodDecision[]
 
   @@map("users")
 }
@@ -260,7 +261,10 @@ model Voucher {
   createdAt               DateTime @default(now()) @map("created_at")
 
   withholding Withholding?
+  atsOperations AtsOperation[] @relation("OperationVoucher")
+  periodDecisions PeriodDecision[]
 
+  @@unique([companyId, id], map: "vouchers_company_id_id_key")
   @@unique([companyId, claveAcceso])
   @@map("vouchers")
 }
@@ -413,6 +417,7 @@ model AtsOperation {
   reference String
   identity String
   voucherId String? @map("voucher_id")
+  voucher Voucher? @relation("OperationVoucher", fields: [companyId, voucherId], references: [companyId, id], onDelete: NoAction, onUpdate: NoAction)
   data Json
   version Int @default(1)
   actorId String @map("actor_id")
@@ -421,4 +426,23 @@ model AtsOperation {
   @@unique([companyId, mes, anio, identity])
   @@unique([companyId, mes, anio, voucherId])
   @@map("ats_operations")
+}
+
+model PeriodDecision {
+  id String @id @default(uuid())
+  companyId String @map("company_id")
+  voucherId String @map("voucher_id")
+  voucher Voucher @relation(fields: [companyId, voucherId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  version Int
+  choice String
+  proposedPeriod String? @map("proposed_period")
+  justification String
+  evidence String
+  sourceHash String @map("source_hash")
+  sourceSnapshot Json @map("source_snapshot")
+  actorId String @map("actor_id")
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([companyId, voucherId, version])
+  @@map("period_decisions")
 }

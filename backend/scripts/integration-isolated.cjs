@@ -175,6 +175,19 @@ async function main() {
   assert.deepEqual(responses.map(r => r.status).sort(), [201, 400]); checks++;
   assert.equal(await prisma.voucher.count(), 1); checks++;
   const sourceVoucher = await prisma.voucher.findFirstOrThrow({ where: { companyId: first.company.id } });
+  const inventory = await req(`/api/declarations/sources?companyId=${first.company.id}&mes=10&anio=2026`, first.accessToken);
+  assert.equal(inventory.scope, 'SOURCE_INVENTORY_ONLY'); checks++;
+  assert.equal(inventory.snapshot.documents.length, 1); checks++;
+  assert.equal(inventory.changesTaxCalculation, false); checks++;
+  await req(`/api/declarations/sources?companyId=${first.company.id}&mes=10&anio=2026`, users[1].accessToken, undefined, 403);
+  await assert.rejects(prisma.atsOperation.create({ data: {
+    companyId: users[1].company.id, voucherId: sourceVoucher.id, mes: 10, anio: 2026,
+    kind: 'COMPRA_ESPECIAL', reference: 'Ensayo de integridad', identity: randomUUID(), data: {}, actorId: users[1].id ?? 'ensayo',
+  } }), e => e.code === 'P2003'); checks++;
+  await assert.rejects(prisma.atsOperation.create({ data: {
+    companyId: first.company.id, voucherId: randomUUID(), mes: 10, anio: 2026,
+    kind: 'COMPRA_ESPECIAL', reference: 'Ensayo de referencia inexistente', identity: randomUUID(), data: {}, actorId: 'ensayo',
+  } }), e => e.code === 'P2003'); checks++;
   const oldPurchase = await prisma.voucher.create({ data: { ...sourceVoucher, id: randomUUID(), claveAcceso: randomUUID(), direccion: 'COMPRA', fechaEmision: new Date('2026-09-15T00:00:00Z') } });
   const operationBody = {companyId:first.company.id,mes:10,anio:2026,kind:'ANULADO',reference:'Anulación de prueba aislada',data:{tipoComprobante:'01',establecimiento:'001',puntoEmision:'001',secuencialInicio:'1',secuencialFin:'10',autorizacion:'1234567890'}};
   await req('/api/ats/operations',users[1].accessToken,operationBody,403);
@@ -319,6 +332,29 @@ async function main() {
   fs.unlinkSync(dumpPath);
   const recovery = await require('./verify-backup.cjs').verifyBackup(encryptedPath, backupKey);
   assert.deepEqual(recovery, { restored: true, users: 2, companies: 2, declarations: 4, pendingMigrations: 0 }); checks++;
+  const decisionVoucher = await prisma.voucher.create({ data: { ...sourceVoucher, id: randomUUID(), claveAcceso: randomUUID(),
+    direccion: 'COMPRA', fechaEmision: new Date('2025-10-10Z'), fechaRegistroAts: new Date('2025-11-01Z') } });
+  const decisionPath = `/api/declarations/period-decisions?companyId=${first.company.id}&voucherId=${decisionVoucher.id}`;
+  const decisionSource = await req(decisionPath, identified.accessToken);
+  await req(decisionPath, users[1].accessToken, undefined, 403);
+  const proposal = { companyId: first.company.id, voucherId: decisionVoucher.id, previousVersion: 0,
+    sourceHash: decisionSource.sourceHash, choice: 'REGISTRO', justification: 'Propuesta documentada en ensayo aislado', evidence: 'Libro de compras noviembre 2025' };
+  await req('/api/declarations/period-decisions', identified.accessToken, { ...proposal, evidence: ' ' }, 400);
+  const savedDecision = await req('/api/declarations/period-decisions', identified.accessToken, proposal, 201);
+  assert.equal(savedDecision.decision.proposedPeriod, '2025-11'); checks++;
+  assert.equal(savedDecision.changesTaxCalculation, false); checks++;
+  await req('/api/declarations/period-decisions', identified.accessToken, proposal, 409);
+  await req('/api/declarations/period-decisions', identified.accessToken, { ...proposal, previousVersion: 1, choice: 'PENDIENTE' }, 201);
+  const decisionHistory = await req(decisionPath, identified.accessToken);
+  assert.equal(decisionHistory.history.length, 2); checks++;
+  await assert.rejects(prisma.periodDecision.update({ where: { id: savedDecision.decision.id }, data: { justification: 'Alteración prohibida' } })); checks++;
+  await assert.rejects(prisma.periodDecision.delete({ where: { id: savedDecision.decision.id } })); checks++;
+  await prisma.voucher.update({ where: { id: decisionVoucher.id }, data: { atsRevision: { cambio: 'ensayo' } } });
+  assert.equal((await req(decisionPath, identified.accessToken)).stale, true); checks++;
+  await req('/api/declarations/period-decisions', identified.accessToken, { ...proposal, previousVersion: 2 }, 409);
+  const refreshed = await req(decisionPath, identified.accessToken);
+  await prisma.taxDeclaration.create({ data: { companyId: first.company.id, mes: 11, anio: 2025, periodicidad: 'MENSUAL', estado: 'CERRADA' } });
+  await req('/api/declarations/period-decisions', identified.accessToken, { ...proposal, previousVersion: 2, sourceHash: refreshed.sourceHash }, 409);
   console.log(JSON.stringify({ result: 'PASS', checks, database: 'PostgreSQL 16 aislado', users: 2, companies: 2,
     scope: 'HTTP real: permisos, registros, login, refresh, logout; sin llamadas SRI ni producción' }));
 }

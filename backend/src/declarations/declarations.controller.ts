@@ -8,6 +8,8 @@ import { PermissionsGuard } from '../rbac/permissions.guard';
 import { RequirePermissions } from '../rbac/permissions.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { DeclarationsService } from './declarations.service';
+import { PeriodDecisionsService } from './period-decisions.service';
+import { PeriodDecisionDto } from './period-decision.dto';
 
 class GenerarDeclaracionDto {
   @ValidateIf((_, v) => v !== undefined)
@@ -41,6 +43,21 @@ class PeriodWorkflowDto extends GenerarDeclaracionDto {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('api/declarations')
 export class DeclarationsController {
+  @Get('period-decisions')
+  @RequirePermissions('declaraciones.generar')
+  decisions(@Query('companyId') companyId: string, @Query('voucherId') voucherId: string) {
+    return this.periodDecisions.history(companyId, voucherId);
+  }
+  @Post('period-decisions')
+  @RequirePermissions('declaraciones.generar')
+  saveDecision(@Body() dto: PeriodDecisionDto, @CurrentUser() user: { userId: string }) {
+    return this.periodDecisions.save(dto, user.userId);
+  }
+  @Get('sources')
+  @RequirePermissions('declaraciones.generar')
+  fuentes(@Query('companyId') companyId: string, @Query('mes') mes: string, @Query('anio') anio: string) {
+    return this.declarations.fuentes(companyId, Number(mes), Number(anio));
+  }
   @Post('filings')
   @RequirePermissions('declaraciones.presentar')
   registrarEvidencia(@Body() dto: FilingDto, @CurrentUser() user: { userId: string }) {
@@ -58,7 +75,7 @@ export class DeclarationsController {
   archivo(@Query('companyId') companyId: string, @Query('id') id: string) {
     return this.declarations.archivoEvidencia(companyId, id);
   }
-  constructor(private readonly declarations: DeclarationsService) {}
+  constructor(private readonly declarations: DeclarationsService, private readonly periodDecisions: PeriodDecisionsService) {}
 
   @Post('workflow')
   @RequirePermissions('declaraciones.presentar')

@@ -14,6 +14,7 @@ import 'ats_review_screen.dart';
 import 'ats_operations_screen.dart';
 import 'filings_screen.dart';
 import 'period_control_screen.dart';
+import 'source_reconciliation_screen.dart';
 
 class DeclaracionesScreen extends StatefulWidget {
   final CompanyService companies;
@@ -416,6 +417,10 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                 ],
                 const SizedBox(height: 24),
                 if (_periodicidad == 'SEMESTRAL') const Text('Este consolidado corresponde al papel de trabajo de impuestos. La generación de ATS disponible actualmente se consulta en el período mensual.'),
+                if (_periodicidad == 'MENSUAL' && _seleccionada != null) OutlinedButton.icon(
+                  onPressed: _ocupado ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => SourceReconciliationScreen(
+                    service: widget.declarations, companyId: _seleccionada!.id, mes: _mes, anio: _anio))),
+                  icon: const Icon(Icons.compare_arrows), label: const Text('Conciliar fuentes y períodos IVA–ATS')),
                 if (_periodicidad == 'MENSUAL') Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
