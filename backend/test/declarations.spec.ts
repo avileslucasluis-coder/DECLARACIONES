@@ -1,6 +1,9 @@
 import { DeclarationsService } from '../src/declarations/declarations.service';
 
 function transaccional(prisma: any) {
+  prisma.company ??= { findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'empresa' }) };
+  prisma.atsOperation ??= { findMany: jest.fn().mockResolvedValue([]) };
+  prisma.periodDecision ??= { findMany: jest.fn().mockResolvedValue([]) };
   prisma.taxDeclaration.count ??= jest.fn().mockResolvedValue(0);
   prisma.taxDeclaration.findUnique ??= jest.fn().mockResolvedValue(null);
   prisma.$executeRaw = jest.fn().mockResolvedValue(1);

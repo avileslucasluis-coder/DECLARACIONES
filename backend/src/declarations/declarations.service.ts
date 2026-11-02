@@ -9,7 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { declarationReport } from './declaration-report';
 import { declarationSource } from './declaration-source';
 import { assertPeriodOpen } from './period-lock';
-import { taxSource } from './tax-source';
+import { taxSource, sourceHash } from './tax-source';
 
 /// Papel de trabajo mensual a partir de comprobantes importados. El 103
 /// contiene retenciones de renta; las retenciones de IVA corresponden al 104.
@@ -44,14 +44,22 @@ export class DeclarationsService {
 
   async generarParaPeriodo(companyId: string, mes: number, anio: number, userId: string, periodicidad = 'MENSUAL', ajustes?: AdjustmentsDto) {
     this.validarPeriodo(mes, anio, periodicidad);
+    return this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
+      return this.generarBloqueado(tx, companyId, mes, anio, userId, periodicidad, ajustes);
+    }, { timeout: 15000 });
+  }
+
+  private async generarBloqueado(tx: Prisma.TransactionClient, companyId: string, mes: number, anio: number, userId: string, periodicidad = 'MENSUAL', ajustes?: AdjustmentsDto) {
+    this.validarPeriodo(mes, anio, periodicidad);
     if (ajustes === undefined) {
-      const saved = await this.prisma.taxDeclaration.findUnique({where:{companyId_mes_anio_periodicidad:{companyId,mes,anio,periodicidad}}});
+      const saved = await tx.taxDeclaration.findUnique({where:{companyId_mes_anio_periodicidad:{companyId,mes,anio,periodicidad}}});
       if (saved?.ajustes && typeof saved.ajustes === 'object' && !Array.isArray(saved.ajustes)) ajustes = saved.ajustes as unknown as AdjustmentsDto;
     }
     const desde = new Date(Date.UTC(anio, periodicidad === 'ANUAL' ? 0 : periodicidad === 'SEMESTRAL' ? mes - 6 : mes - 1, 1));
     const hasta = new Date(Date.UTC(anio, mes, 1));
 
-    const vouchers = await this.prisma.voucher.findMany({
+    const vouchers = await tx.voucher.findMany({
       where: { companyId, fechaEmision: { gte: desde, lt: hasta } },
     });
 
@@ -108,7 +116,7 @@ export class DeclarationsService {
     };
     if (periodicidad === 'ANUAL') {
       if (!ajustes || inputs.ingresosBrutos === undefined) throw new BadRequestException('La renta anual requiere ingresos y conciliación confirmados.');
-      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+      const company = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
       liquidacion = { ...liquidarRenta(anio, company.regimen, company.tipoPersona, inputs),
         ingresosComprobantesInformativo: amount(ventasGravadas.plus(ventas0)),
         retencionesImportadasInformativo: amount(rentaRetenidaEnVentas), conciliado: true };
@@ -125,6 +133,9 @@ export class DeclarationsService {
       totalRetencionesRentaAplicadas: redondear(retRentaAplicada),
     };
     Object.assign(liquidacion, declarationSource(vouchers));
+    const fuentes = await this.fuentesCierre(tx, companyId, desde, hasta);
+    liquidacion.fuentesCierre = fuentes;
+    liquidacion.huellaFuentesCierre = sourceHash(fuentes);
 
     const declaration = await this.versionar(companyId, mes, anio, userId, 'GENERAR_BORRADOR', periodicidad, async tx => tx.taxDeclaration.upsert({
       where: { companyId_mes_anio_periodicidad: { companyId, mes, anio, periodicidad } },
@@ -145,7 +156,7 @@ export class DeclarationsService {
         fechaPresentacion: null,
         fechaGeneracion: new Date(),
       },
-    }));
+    }), tx);
 
     await this.audit.registrar({
       userId,
@@ -154,7 +165,7 @@ export class DeclarationsService {
       modulo: 'DECLARATIONS',
       registroId: declaration.id,
       resultado: 'OK',
-    });
+    }, tx);
 
     return {
       ...declaration,
@@ -235,6 +246,12 @@ export class DeclarationsService {
           gte: new Date(Date.UTC(anio, periodicidad === 'ANUAL' ? 0 : periodicidad === 'SEMESTRAL' ? mes - 6 : mes - 1, 1)),
           lt: new Date(Date.UTC(anio, mes, 1)),
         } } });
+        const fuentes = await this.fuentesCierre(tx, companyId,
+          new Date(Date.UTC(anio, periodicidad === 'ANUAL' ? 0 : periodicidad === 'SEMESTRAL' ? mes - 6 : mes - 1, 1)),
+          new Date(Date.UTC(anio, mes, 1)));
+        if (!liquidacion.huellaFuentesCierre || sourceHash(fuentes) !== liquidacion.huellaFuentesCierre) {
+          throw new ConflictException('Las fuentes tributarias cambiaron o el borrador es anterior al control integral. Reabre y genera nuevamente para revisar.');
+        }
         if (declarationSource(vouchers).huellaComprobantes !== liquidacion.huellaComprobantes) {
           throw new ConflictException('Los comprobantes cambiaron o esta versión no tiene detalle histórico. Reabre y genera nuevamente antes de aprobar.');
         }
@@ -336,12 +353,29 @@ export class DeclarationsService {
     return { archivoBase64: decryptPdf(record.archivoCifrado), nombre: `respaldo-${record.id}.pdf`, hash: record.hashArchivo };
   }
 
+  private async fuentesCierre(tx: Prisma.TransactionClient, companyId: string, desde: Date, hasta: Date) {
+    const company = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
+    const operations = await tx.atsOperation.findMany({ where: { companyId, anio: desde.getUTCFullYear(),
+      mes: { gte: desde.getUTCMonth() + 1, lte: hasta.getUTCMonth() || 12 } }, orderBy: { id: 'asc' } });
+    const documents = await tx.voucher.findMany({ where: { companyId, OR: [
+      { fechaEmision: { gte: desde, lt: hasta } },
+      { fechaRegistroAts: { gte: desde, lt: hasta } },
+      { id: { in: operations.flatMap(o => o.voucherId ? [o.voucherId] : []) } },
+    ] }, orderBy: { id: 'asc' } });
+    const decisions = await tx.periodDecision.findMany({ where: { companyId, voucherId: { in: documents.map(v => v.id) } },
+      orderBy: [{ voucherId: 'asc' }, { version: 'asc' }] });
+    // Serializar conserva fechas y decimales, sin guardar XML original ni datos de acceso.
+    return JSON.parse(JSON.stringify({ version: 1, company, operations, decisions,
+      documents: documents.map(({ xmlOriginal, ...document }) => ({ ...document, xmlHash: xmlOriginal ? sourceHash(xmlOriginal) : null })) }));
+  }
+
   private async versionar<T extends { id: string }>(
     companyId: string, mes: number, anio: number, actorId: string, action: string,
     periodicidad: string,
     mutation: (tx: Prisma.TransactionClient) => Promise<T>,
+    transaction?: Prisma.TransactionClient,
   ): Promise<T & { revision: number }> {
-    return this.prisma.$transaction(async tx => {
+    const run = async (tx: Prisma.TransactionClient) => {
       // Serializa el ejercicio para comprobar solapamientos entre meses y semestres.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), hashtext(${String(anio)}))`;
@@ -368,7 +402,8 @@ export class DeclarationsService {
         snapshot: JSON.parse(JSON.stringify(result)),
       } });
       return { ...result, revision: (last?.version ?? 0) + 1 };
-    });
+    };
+    return transaction ? run(transaction) : this.prisma.$transaction(run);
   }
 
   private validarPeriodo(mes: number, anio: number, periodicidad = 'MENSUAL') {

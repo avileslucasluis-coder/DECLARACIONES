@@ -8,6 +8,7 @@ import { TaxProfileDto } from './dto/tax-profile.dto';
 export class CompaniesService {
   async actualizarPerfil(companyId: string, dto: TaxProfileDto, userId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}), 0)`;
       const anterior = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
       const company = await tx.company.update({ where: { id: companyId }, data: dto });
       await this.audit.registrar({
