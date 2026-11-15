@@ -14,6 +14,7 @@ const labels: Record<string, string> = {
 };
 
 function cell(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return value.toFixed(2).replace('.', ',');
   let text = String(value ?? '');
   // El archivo también contiene texto introducido por usuarios. Evitar fórmulas al abrirlo en Excel.
   if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
@@ -26,25 +27,30 @@ export function declarationReport(snapshot: Record<string, any>, version: number
     ['Alcance', 'No acredita presentación ni aceptación del SRI. Valores de la versión guardada; no recalculados con comprobantes actuales.'],
     ['Empresa (identificador)', snapshot.companyId], ['Declaración', snapshot.id],
     ['Período', `${snapshot.mes}/${snapshot.anio}`], ['Periodicidad', snapshot.periodicidad],
-    ['Versión', version], ['Fecha de la versión (UTC)', createdAt.toISOString()], ['Estado local', snapshot.estado],
+    ['Versión', String(version)], ['Fecha de la versión (UTC)', createdAt.toISOString()], ['Estado local', snapshot.estado],
     ['Sección', 'Concepto', 'Valor'],
   ];
   for (const [key, value] of Object.entries(snapshot)) {
-    if (key.startsWith('total')) rows.push(['Comprobantes importados', labels[key] ?? key, value]);
+    if (key.startsWith('total')) rows.push(['Comprobantes importados', labels[key] ?? key, Number(value)]);
   }
   for (const [section, values] of [['Conciliación', snapshot.ajustes], ['Liquidación', snapshot.liquidacion]] as const) {
     if (values && typeof values === 'object' && !Array.isArray(values)) {
       for (const [key, value] of Object.entries(values)) {
         if (value !== null && typeof value === 'object') continue;
-        rows.push([section, labels[key] ?? key.replace(/([a-z])([A-Z])/g, '$1 $2'), typeof value === 'boolean' ? (value ? 'Sí' : 'No') : value]);
+        rows.push([section, labels[key] ?? key.replace(/([a-z])([A-Z])/g, '$1 $2'), typeof value === 'boolean' ? (value ? 'Sí' : 'No') : typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value]);
       }
     }
+  }
+  const tariffs = snapshot.liquidacion?.desgloseTarifas;
+  if (Array.isArray(tariffs)) {
+    rows.push([], ['Totales por tarifa'], ['Operación', 'Impuesto', 'Tarifa', 'Subtotal / base', 'IVA / retenido']);
+    for (const item of tariffs) rows.push([item.direccion, item.grupo, item.tarifa, item.base, item.valor]);
   }
   const detail = snapshot.liquidacion?.detalleComprobantes;
   if (Array.isArray(detail)) {
     rows.push([], ['Detalle de comprobantes de esta versión'],
       ['Clave de acceso', 'Fecha', 'Tipo', 'Dirección', 'Emisor', 'Nombre', 'Signo', 'Base gravada', 'Base cero', 'IVA', 'Renta retenida']);
-    for (const item of detail) rows.push([item.clave, item.fecha, item.tipo, item.direccion, item.emisor, item.nombre, item.signo, item.baseGravada, item.baseCero, item.iva, item.renta]);
+    for (const item of detail) rows.push([item.clave, item.fecha, item.tipo, item.direccion, item.emisor, item.nombre, String(item.signo), Number(item.baseGravada), Number(item.baseCero), Number(item.iva), Number(item.renta)]);
     rows.push(['Interpretación', 'Las notas de crédito tienen signo -1. Los importes originales se conservan. El derecho a crédito se concilia por separado; las operaciones especiales del ATS no se suman automáticamente al IVA.']);
   } else rows.push(['Detalle', 'Esta versión antigua no conserva el detalle de comprobantes.']);
   const control = snapshot.liquidacion?.controlPeriodo;

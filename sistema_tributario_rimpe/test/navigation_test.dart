@@ -36,8 +36,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      for (final destino in ['Empresas', 'Importar XML', 'Retenciones', 'Declaraciones', 'Obligaciones', 'SRI · Pruebas', 'Panel']) {
-        await tester.tap(find.text(destino).first);
+      for (final destino in ['Empresas', 'Facturas', 'Importar XML / TXT', 'Retenciones', 'Exportar Excel', 'Declaraciones', 'Obligaciones', 'SRI · Pruebas', 'Panel']) {
+        if (size.width < 900) {
+          await tester.tap(find.byTooltip('Menú principal'));
+          await tester.pumpAndSettle();
+        }
+        final target = size.width < 900 ? find.descendant(of: find.byType(Drawer), matching: find.text(destino)) : find.text(destino).first;
+        await tester.ensureVisible(target);
+        await tester.tap(target);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: destino);
         expect(find.byType(CircularProgressIndicator), findsNothing, reason: destino);

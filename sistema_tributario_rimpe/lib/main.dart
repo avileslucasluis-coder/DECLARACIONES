@@ -10,10 +10,11 @@ import 'services/ats_api_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/complete_identity_screen.dart';
 import 'screens/admin_screen.dart';
-import 'screens/dashboard_screen.dart';
+import 'screens/workspace_dashboard.dart';
 import 'screens/companies_screen.dart';
 import 'screens/xml_import_screen.dart';
-import 'screens/retenciones_screen.dart';
+import 'screens/tax_ledger_screen.dart';
+import 'screens/excel_export_screen.dart';
 import 'screens/declaraciones_screen.dart';
 import 'screens/obligaciones_screen.dart';
 import 'screens/sri_screen.dart';
@@ -89,14 +90,17 @@ class _RootShellState extends State<RootShell> {
   late final DeclarationApiService _declarations = DeclarationApiService(widget.auth.api);
   late final TaxObligationsService _obligations = TaxObligationsService(widget.auth.api);
   late final AtsApiService _ats = AtsApiService(widget.auth.api);
+
   late final SriApiService _sri = SriApiService(widget.auth.api);
 
   List<_Destino> get _destinos => [
     if (widget.auth.platformAdmin) const _Destino('Administración', Icons.admin_panel_settings_outlined, Icons.admin_panel_settings),
     const _Destino('Panel', Icons.dashboard_outlined, Icons.dashboard),
     const _Destino('Empresas', Icons.domain_outlined, Icons.domain),
-    const _Destino('Importar XML', Icons.upload_file_outlined, Icons.upload_file),
+    const _Destino('Facturas', Icons.description_outlined, Icons.description),
+    const _Destino('Importar XML / TXT', Icons.upload_file_outlined, Icons.upload_file),
     const _Destino('Retenciones', Icons.receipt_long_outlined, Icons.receipt_long),
+    const _Destino('Exportar Excel', Icons.file_download_outlined, Icons.file_download),
     const _Destino('Declaraciones', Icons.fact_check_outlined, Icons.fact_check),
     const _Destino('Obligaciones', Icons.rule_folder_outlined, Icons.rule_folder),
     const _Destino('SRI · Pruebas', Icons.cloud_upload_outlined, Icons.cloud_upload),
@@ -105,10 +109,12 @@ class _RootShellState extends State<RootShell> {
 
   List<Widget> get _paginas => [
         if (widget.auth.platformAdmin) AdminScreen(api: widget.auth.api),
-        DashboardScreen(companies: _companies, vouchers: _vouchers),
+        DashboardScreen(companies: _companies, vouchers: _vouchers, onNavigate: (label) { final i = _destinos.indexWhere((d) => d.label == label); if (i >= 0) setState(() => _index = i); }),
         CompaniesScreen(companies: _companies),
+        TaxLedgerScreen(companies: _companies, vouchers: _vouchers),
         XmlImportScreen(companies: _companies, vouchers: _vouchers),
-        RetencionesScreen(companies: _companies, vouchers: _vouchers),
+        TaxLedgerScreen(companies: _companies, vouchers: _vouchers, retenciones: true),
+        ExcelExportScreen(companies: _companies, vouchers: _vouchers),
         DeclaracionesScreen(companies: _companies, declarations: _declarations, ats: _ats),
         ObligacionesScreen(companies: _companies, obligations: _obligations),
         SriScreen(companies: _companies, sri: _sri),
@@ -116,7 +122,14 @@ class _RootShellState extends State<RootShell> {
       ];
 
   Future<void> _cerrarSesion() async {
+    _vouchers.dispose();
     await widget.auth.logout();
+  }
+
+  @override
+  void dispose() {
+    _vouchers.dispose();
+    super.dispose();
   }
 
   @override
@@ -167,11 +180,13 @@ class _RootShellState extends State<RootShell> {
 
     return Scaffold(
       body: paginas[_index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: _destinos.map((d) => NavigationDestination(icon: Icon(d.icon), selectedIcon: Icon(d.iconActivo), label: d.label)).toList(),
-      ),
+      appBar: AppBar(title: const Text('Sistema Tributario'), leading: Builder(builder: (context) => IconButton(
+        tooltip: 'Menú principal', icon: const Icon(Icons.menu), onPressed: () => Scaffold.of(context).openDrawer()))),
+      drawer: Drawer(child: SafeArea(child: ListView(children: [
+        const DrawerHeader(child: Text('Sistema Tributario')),
+        ..._destinos.asMap().entries.map((e) => ListTile(leading: Icon(e.value.icon), title: Text(e.value.label), selected: _index == e.key,
+          onTap: () { setState(() => _index = e.key); Navigator.pop(context); })),
+      ]))),
       floatingActionButton: FloatingActionButton.small(
         onPressed: _cerrarSesion,
         backgroundColor: Colors.grey.shade200,

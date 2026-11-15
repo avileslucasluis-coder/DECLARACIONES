@@ -10,6 +10,7 @@ import '../services/ats_api_service.dart';
 import '../services/api_exception.dart';
 import '../utils/app_theme.dart';
 import 'tax_adjustments_screen.dart';
+import 'tax_ledger_screen.dart';
 import 'ats_review_screen.dart';
 import 'ats_operations_screen.dart';
 import 'filings_screen.dart';
@@ -396,6 +397,8 @@ class _DeclaracionesScreenState extends State<DeclaracionesScreen> {
                   Text(_error!, style: TextStyle(color: AppTheme.danger)),
                 ],
                 if (_resultado != null) ...[
+                  const Text('Totales de facturas y retenciones por tarifa', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Card(child: TaxBreakdown(lines: (_resultado!.liquidacion['desgloseTarifas'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList())),
                   OutlinedButton.icon(onPressed: _ocupado ? null : _descargarReporte,
                     icon: const Icon(Icons.download), label: Text(_descargando ? 'Preparando reporte…' : 'Descargar papel de trabajo (Excel / CSV)')),
                   const SizedBox(height: 20),

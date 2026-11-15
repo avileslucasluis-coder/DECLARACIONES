@@ -18,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _accesoAnterior = false;
   final _correo = TextEditingController();
   final _password = TextEditingController();
+  bool _mostrarPassword = false;
   final _nombre = TextEditingController();
   bool _modoRegistro = false;
   bool _cargando = false;
@@ -126,15 +127,19 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (_modoRegistro || _accesoAnterior)
                   TextFormField(
                     controller: _correo,
-                    decoration: const InputDecoration(labelText: 'Correo electrónico'),
+                    decoration: InputDecoration(labelText: _modoRegistro ? 'Correo electrónico (opcional)' : 'Correo electrónico'),
                     keyboardType: TextInputType.emailAddress,
-                    validator: (v) => (v == null || !v.contains('@')) ? 'Correo inválido' : null,
+                    validator: (v) => _modoRegistro && (v == null || v.trim().isEmpty) ? null : (v == null || !v.contains('@')) ? 'Correo inválido' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _password,
-                    decoration: const InputDecoration(labelText: 'Contraseña'),
-                    obscureText: true,
+                    decoration: InputDecoration(labelText: 'Contraseña',
+                      suffixIcon: IconButton(
+                        tooltip: _mostrarPassword ? 'Ocultar contraseña' : 'Mostrar contraseña',
+                        icon: Icon(_mostrarPassword ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _mostrarPassword = !_mostrarPassword))),
+                    obscureText: !_mostrarPassword,
                     validator: (v) => (v == null || v.isEmpty)
                         ? 'Campo requerido'
                         : (_modoRegistro && v.length < 12) ? 'Mínimo 12 caracteres' : null,

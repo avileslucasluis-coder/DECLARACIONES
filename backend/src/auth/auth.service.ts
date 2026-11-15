@@ -43,7 +43,7 @@ export class AuthService {
     if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PUBLIC_REGISTRATION !== 'true') {
       throw new ForbiddenException('El registro público está deshabilitado. Contacta al administrador.');
     }
-    const existente = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const existente = dto.email ? await this.prisma.user.findUnique({ where: { email: dto.email } }) : null;
     if (existente) {
       throw new ConflictException('Ya existe una cuenta con ese correo.');
     }
@@ -144,7 +144,7 @@ export class AuthService {
     if (token) await this.audit.registrar({ userId: token.userId, accion: 'LOGOUT', modulo: 'AUTH', resultado: 'OK' });
   }
 
-  private async emitirTokens(userId: string, email: string, sessionVersion = 0) {
+  private async emitirTokens(userId: string, email: string | null, sessionVersion = 0) {
     const accessToken = await this.jwt.signAsync(
       { sub: userId, email, sv: sessionVersion },
       { expiresIn: ACCESS_TOKEN_TTL },

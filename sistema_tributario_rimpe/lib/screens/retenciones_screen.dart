@@ -129,7 +129,7 @@ class _RetencionesScreenState extends State<RetencionesScreen> {
                     : visibles.isEmpty
                         ? Center(
                             child: Text(
-                              'No hay retenciones importadas en esta categoría.\nCarga sus archivos en Importar XML.',
+                              'No hay retenciones importadas en esta categoría.\nCarga sus archivos en Importar XML / TXT.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.grey.shade600),
                             ),

@@ -25,7 +25,9 @@ async function main() {
   created = true;
   const dbPort = docker(['port', name, '5432/tcp']).split(':').pop();
   for (let i = 0; i < 60; i++) {
-    try { docker(['exec', name, 'pg_isready', '-U', 'postgres']); break; }
+    // La inicialización de PostgreSQL abre primero un servidor temporal por socket.
+    // Esperar TCP evita lanzar migraciones antes del servidor definitivo.
+    try { docker(['exec', name, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres']); break; }
     catch { if (i === 59) throw new Error('PostgreSQL de pruebas no inició.'); await pause(500); }
   }
   const port = await freePort();
@@ -46,7 +48,30 @@ async function main() {
   const legacyId = randomUUID();
   docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-v', 'ON_ERROR_STOP=1', '-c',
     `INSERT INTO users(id,email,password_hash,nombre) VALUES ('${legacyId}','migration-fixture@example.com','not-a-login-hash','Cuenta anterior')`]);
+  const legacyCompanyIds = [randomUUID(), randomUUID(), randomUUID()];
+  const legacyRoleId = randomUUID();
+  docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-v', 'ON_ERROR_STOP=1', '-c', `
+    INSERT INTO roles(id,nombre) VALUES ('${legacyRoleId}','ADMIN_EMPRESA');
+    INSERT INTO companies(id,ruc,razon_social,regimen) VALUES
+      ('${legacyCompanyIds[0]}','0998888888001','Migracion creador','GENERAL'),
+      ('${legacyCompanyIds[1]}','0998888887001','Migracion miembro','GENERAL'),
+      ('${legacyCompanyIds[2]}','0998888886001','Migracion sin miembros','GENERAL');
+    INSERT INTO company_users(id,company_id,user_id,role_id) VALUES
+      ('${randomUUID()}','${legacyCompanyIds[0]}','${legacyId}','${legacyRoleId}'),
+      ('${randomUUID()}','${legacyCompanyIds[1]}','${legacyId}','${legacyRoleId}');
+    INSERT INTO audit_logs(id,user_id,company_id,accion,modulo,resultado) VALUES
+      ('${randomUUID()}','${legacyId}','${legacyCompanyIds[0]}','CREAR_EMPRESA','COMPANIES','OK');
+    INSERT INTO establishments(id,company_id,codigo) VALUES ('${randomUUID()}','${legacyCompanyIds[0]}','001');
+  `]);
   run(['node_modules/prisma/build/index.js', 'migrate', 'deploy']);
+  for (const id of legacyCompanyIds.slice(0, 2)) {
+    const owner = docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-Atc', `SELECT owner_user_id FROM companies WHERE id='${id}'`]);
+    assert.equal(owner, legacyId); checks++;
+  }
+  assert.equal(docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-Atc', `SELECT count(*) FROM establishments WHERE company_id='${legacyCompanyIds[0]}'`]), '1'); checks++;
+  assert.equal(docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-Atc', `SELECT count(*) FROM companies WHERE id='${legacyCompanyIds[2]}' AND owner_user_id IS NULL`]), '1'); checks++;
+  docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-v', 'ON_ERROR_STOP=1', '-c',
+    `DELETE FROM companies WHERE id IN (${legacyCompanyIds.map(id => `'${id}'`).join(',')}); DELETE FROM audit_logs WHERE user_id='${legacyId}';`]);
   const preserved = docker(['exec', name, 'psql', '-U', 'postgres', '-d', 'dayanex_test', '-Atc',
     `SELECT nombre || '|' || activo::text FROM users WHERE id='${legacyId}'`]);
   assert.equal(preserved, 'Cuenta anterior|true'); checks++;
@@ -128,9 +153,12 @@ async function main() {
     } }), 1); checks++;
     const list = await req('/api/companies', user.accessToken);
     assert.deepEqual(list.map(c => c.id), [own]);
-    for (const route of ['/api/vouchers', '/api/ats/history', '/api/ats/review', '/api/declarations/history', '/api/declarations/filings', '/api/sri/documents', '/api/audit', '/api/tax/obligations']) {
+    for (const route of ['/api/vouchers', '/api/vouchers/export-excel', '/api/ats/history', '/api/ats/review', '/api/declarations/history', '/api/declarations/filings', '/api/sri/documents', '/api/audit', '/api/tax/obligations']) {
       await req(`${route}?companyId=${other}&mes=10&anio=2026`, user.accessToken, undefined, 403);
     }
+    const exported = await req(`/api/vouchers/export-excel?companyId=${own}&mes=10&anio=2026`, user.accessToken);
+    assert.equal(exported.mimeType, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    assert.equal(Buffer.from(exported.contentBase64, 'base64').subarray(0, 2).toString(), 'PK'); checks += 2;
     for (const route of ['/api/declarations/generar', '/api/declarations/presentar', '/api/ats/validate', '/api/ats/generate', '/api/vouchers/import']) {
       await req(route, user.accessToken, { companyId: other, mes: 10, anio: 2026 }, 403);
     }
@@ -172,7 +200,8 @@ async function main() {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${first.accessToken}` },
     body: JSON.stringify({ companyId: first.company.id, xmlContent: xml }),
   })));
-  assert.deepEqual(responses.map(r => r.status).sort(), [201, 400]); checks++;
+  const responseBodies = await Promise.all(responses.map(r => r.text()));
+  assert.deepEqual(responses.map(r => r.status).sort(), [201, 400], responseBodies.join('\n')); checks++;
   assert.equal(await prisma.voucher.count(), 1); checks++;
   const sourceVoucher = await prisma.voucher.findFirstOrThrow({ where: { companyId: first.company.id } });
   const inventory = await req(`/api/declarations/sources?companyId=${first.company.id}&mes=10&anio=2026`, first.accessToken);
@@ -259,7 +288,7 @@ async function main() {
   const firstUser = await prisma.user.findUniqueOrThrow({ where: { email: first.email } });
   await prisma.passwordReset.create({ data: { userId: firstUser.id,
     tokenHash: createHash('sha256').update(resetToken).digest('hex'), expiresAt: new Date(Date.now() + 60000) } });
-  const newPassword = randomBytes(24).toString('hex');
+  const newPassword = require('node:crypto').randomBytes(24).toString('hex');
   const resetResponses = await Promise.all([1, 2].map(() => fetch(origin + '/api/auth/reset-password', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: resetToken, password: newPassword }),
@@ -355,6 +384,115 @@ async function main() {
   const refreshed = await req(decisionPath, identified.accessToken);
   await prisma.taxDeclaration.create({ data: { companyId: first.company.id, mes: 11, anio: 2025, periodicidad: 'MENSUAL', estado: 'CERRADA' } });
   await req('/api/declarations/period-decisions', identified.accessToken, { ...proposal, previousVersion: 2, sourceHash: refreshed.sourceHash }, 409);
+  const txtKey = '0101202401179001234500120010010000000011234567811';
+  const txtContent = `CLAVE_ACCESO;RUC_EMISOR;FECHA_EMISION;TIPO_COMPROBANTE;TARIFA_IVA;BASE_IMPONIBLE;IVA\n${txtKey};1790012345001;01/01/2024;FACTURA;15;100,00;15,00`;
+  const txtBody = { companyId: first.company.id, sentido: 'RECIBIDOS', txtContent };
+  await req('/api/vouchers/import-txt', users[1].accessToken, txtBody, 403);
+  const importedTxt = await req('/api/vouchers/import-txt', identified.accessToken, txtBody, 201);
+  assert.equal(importedTxt.importados, 1); checks++;
+  const duplicateTxt = await req('/api/vouchers/import-txt', identified.accessToken, txtBody, 201);
+  assert.equal(duplicateTxt.duplicados, 1); checks++;
+  const pendingKey = txtKey.slice(0, -1) + '2';
+  await req('/api/vouchers/import-txt', identified.accessToken, { ...txtBody,
+    txtContent: `CLAVE_ACCESO;RUC_EMISOR;FECHA_EMISION;TIPO_COMPROBANTE;IMPORTE_TOTAL\n${pendingKey};1790012345001;01/01/2024;FACTURA;108,00` }, 201);
+  await req('/api/declarations/generar', identified.accessToken, {companyId:first.company.id,mes:1,anio:2024}, 400);
+  const pendingBefore = await prisma.voucher.findUniqueOrThrow({where:{companyId_claveAcceso:{companyId:first.company.id,claveAcceso:pendingKey}}});
+  const completed = await req('/api/vouchers/import', identified.accessToken, {companyId:first.company.id,
+    xmlContent:`<factura><infoTributaria><ruc>1790012345001</ruc><claveAcceso>${pendingKey}</claveAcceso></infoTributaria><infoFactura><fechaEmision>01/01/2024</fechaEmision><identificacionComprador>${first.company.ruc}</identificacionComprador><importeTotal>108.00</importeTotal><totalConImpuestos><totalImpuesto><codigo>2</codigo><codigoPorcentaje>8</codigoPorcentaje><baseImponible>100.00</baseImponible><valor>8.00</valor></totalImpuesto></totalConImpuestos></infoFactura></factura>`},201);
+  assert.equal(completed.voucher.id,pendingBefore.id); checks++;
+  assert.equal(completed.voucher.clasificacionPendiente,false); checks++;
+  const taxResult = await req('/api/declarations/generar', identified.accessToken, {companyId:first.company.id,mes:1,anio:2024}, 201);
+  assert.equal(Number(taxResult.totalIvaCompras),23); checks++;
+  assert.equal(taxResult.liquidacion.desgloseTarifas.find(v=>v.tarifa==='15').base,100); checks++;
+  assert.equal(taxResult.liquidacion.desgloseTarifas.find(v=>v.tarifa==='8').valor,8); checks++;
+  // Exercise the destructive feature only against this disposable database.
+  {
+  const companyPath = `/api/companies/${first.company.id}`;
+  const companyPdf = Buffer.from('%PDF-1.7\nrespaldo empresa').toString('base64');
+  await req('/api/declarations/filings', identified.accessToken, {
+    companyId: first.company.id, declarationId: taxResult.id, revision: taxResult.revision,
+    formulario: '104', tipo: 'PRESENTACION', numero: 'RESPALDO-EMPRESA', fecha: '2026-01-01T00:00:00.000Z',
+    valor: '0.00', observacion: 'Adjunto de prueba para exportación completa', archivoBase64: companyPdf,
+  }, 201);
+  await req(`${companyPath}/editar`, users[1].accessToken, { ...first.company, razonSocial: 'Ajena' }, 403);
+  const edit = { ruc: first.company.ruc, razonSocial: 'Empresa editada', regimen: 'GENERAL', nombreComercial: '', actividadEconomica: '', direccion: 'Dirección de ensayo', telefono: '0991234567' };
+  await req(`${companyPath}/editar`, identified.accessToken, { ...edit, razonSocial: '   ' }, 400);
+  await req(`${companyPath}/editar`, identified.accessToken, { ...edit, ruc: '0991234567001' }, 409);
+  const edited = await req(`${companyPath}/editar`, identified.accessToken, edit, 201);
+  assert.equal(edited.razonSocial, edit.razonSocial); checks++;
+  assert.equal(edited.direccion, edit.direccion); checks++;
+  await req(`${companyPath}/respaldo`, users[1].accessToken, undefined, 403);
+  const backup = await req(`${companyPath}/respaldo`, identified.accessToken);
+  const saved = JSON.parse(require('node:zlib').gunzipSync(Buffer.from(backup.contentBase64, 'base64')).toString('utf8'));
+  assert.equal(saved.empresa.id, first.company.id); checks++;
+  assert.ok(saved.empresa.vouchers.some(v => v.xmlOriginal)); checks++;
+  assert.ok(saved.empresa.declarations.some(d => d.revisions.length)); checks++;
+  assert.ok(saved.empresa.declarations.some(d => d.filings.some(f => f.archivoPdfBase64 === companyPdf))); checks++;
+  assert.equal(saved.decisionesPeriodo.length, 2); checks++;
+  assert.ok(!JSON.stringify(saved).includes('passwordHash')); checks++;
+  assert.ok(!JSON.stringify(saved).includes('archivoCifrado')); checks++;
+  await req(`${companyPath}/eliminar`, users[1].accessToken, { confirmarRuc: first.company.ruc }, 403);
+  await req(`${companyPath}/eliminar`, identified.accessToken, { confirmarRuc: '0991234567001' }, 409);
+  assert.ok(await prisma.company.findUnique({ where: { id: first.company.id } })); checks++;
+  await req(`${companyPath}/eliminar`, identified.accessToken, { confirmarRuc: first.company.ruc }, 201);
+  assert.equal(await prisma.company.findUnique({ where: { id: first.company.id } }), null); checks++;
+  for (const model of ['voucher', 'taxDeclaration', 'periodDecision', 'atsOperation', 'auditLog', 'companyUser']) {
+    assert.equal(await prisma[model].count({ where: { companyId: first.company.id } }), 0); checks++;
+  }
+  assert.ok(await prisma.company.findUnique({ where: { id: users[1].company.id } })); checks++;
+  assert.equal(await prisma.auditLog.count({ where: { accion: 'ELIMINAR_EMPRESA', registroId: first.company.id } }), 1); checks++;
+  await req(`${companyPath}/respaldo`, identified.accessToken, undefined, 403);
+  }
+  // Identical RUCs belong to separate account records, never implicitly shared.
+  {
+    const sharedRuc = '0995555555001';
+    const dto = { ruc: sharedRuc, razonSocial: 'Cuenta A independiente', regimen: 'GENERAL' };
+    const a = await req('/api/companies', identified.accessToken, dto, 201);
+    const b = await req('/api/companies', users[1].accessToken, { ...dto, razonSocial: 'Cuenta B independiente' }, 201);
+    assert.notEqual(a.id, b.id); checks++;
+    assert.notEqual(a.ownerUserId, b.ownerUserId); checks++;
+    await req('/api/companies', identified.accessToken, dto, 409);
+    await req('/api/companies', users[1].accessToken, dto, 409);
+    await req('/api/companies', identified.accessToken, { ...dto, ruc: '0995555554001', ownerUserId: b.ownerUserId }, 400);
+    for (const [own, foreign, token] of [[a,b,identified.accessToken], [b,a,users[1].accessToken]]) {
+      const list = await req('/api/companies', token);
+      assert.deepEqual(list.filter(c => c.ruc === sharedRuc).map(c => c.id), [own.id]); checks++;
+      for (const path of [`/api/vouchers?companyId=${foreign.id}`, `/api/companies/${foreign.id}/respaldo`, `/api/declarations/history?companyId=${foreign.id}&mes=10&anio=2026`]) {
+        await req(path, token, undefined, 403);
+      }
+      await req(`/api/companies/${foreign.id}/editar`, token, dto, 403);
+      await req(`/api/companies/${foreign.id}/eliminar`, token, { confirmarRuc: sharedRuc }, 403);
+    }
+    const pendingTxt = `CLAVE_ACCESO\tRUC_EMISOR\tIDENTIFICACION_RECEPTOR\tFECHA_EMISION\tTIPO_COMPROBANTE\tIMPORTE_TOTAL\n${txtKey}\t1790012345001\t${sharedRuc}\t01/01/2024\tFACTURA\t115.00`;
+    for (const [company,token] of [[a,identified.accessToken],[b,users[1].accessToken]]) {
+      await req('/api/vouchers/import-txt', token, {companyId:company.id,txtContent:pendingTxt,sentido:'RECIBIDOS'}, 201);
+      const ownVouchers = await req(`/api/vouchers?companyId=${company.id}`, token);
+      assert.equal(ownVouchers.length, 1); checks++;
+      assert.equal(ownVouchers[0].companyId, company.id); checks++;
+    }
+    const draftA = await prisma.taxDeclaration.create({ data: { companyId: a.id, mes: 10, anio: 2026, totalIvaCompras: 15 } });
+    const draftB = await prisma.taxDeclaration.create({ data: { companyId: b.id, mes: 10, anio: 2026, totalIvaCompras: 30 } });
+    await req(`/api/companies/${a.id}/editar`, identified.accessToken, { ...dto, razonSocial: 'Solo cambia A' }, 201);
+    assert.equal((await prisma.company.findUniqueOrThrow({where:{id:b.id}})).razonSocial, 'Cuenta B independiente'); checks++;
+    const backupA = await req(`/api/companies/${a.id}/respaldo`, identified.accessToken);
+    const dataA = JSON.parse(require('node:zlib').gunzipSync(Buffer.from(backupA.contentBase64,'base64')).toString());
+    assert.deepEqual(dataA.empresa.vouchers.map(v => v.companyId), [a.id]); checks++;
+    assert.deepEqual(dataA.empresa.declarations.map(d => d.id), [draftA.id]); checks++;
+    await req(`/api/companies/${a.id}/eliminar`, identified.accessToken, {confirmarRuc:sharedRuc}, 201);
+    assert.equal(await prisma.voucher.count({where:{companyId:b.id}}),1); checks++;
+    assert.ok(await prisma.taxDeclaration.findUnique({where:{id:draftB.id}})); checks++;
+    // Editing and simultaneous creation are still unique within one account.
+    const editable = await req('/api/companies', identified.accessToken, { ...dto, ruc:'0995555553001' }, 201);
+    await req(`/api/companies/${editable.id}/editar`, identified.accessToken, dto, 201);
+    const concurrentDto = {...dto, ruc:'0995555552001'};
+    const responses = await Promise.all([0,1].map(() => fetch(origin+'/api/companies', {
+      method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${identified.accessToken}`}, body:JSON.stringify(concurrentDto),
+    })));
+    assert.deepEqual(responses.map(r=>r.status).sort(),[201,409]); checks++;
+    await req(`/api/companies/${editable.id}/editar`, identified.accessToken, concurrentDto, 409);
+    await req(`/api/companies/${b.id}/eliminar`, users[1].accessToken, {confirmarRuc:sharedRuc}, 201);
+    await req(`/api/companies/${editable.id}/eliminar`, identified.accessToken, {confirmarRuc:sharedRuc}, 201);
+  }
   console.log(JSON.stringify({ result: 'PASS', checks, database: 'PostgreSQL 16 aislado', users: 2, companies: 2,
     scope: 'HTTP real: permisos, registros, login, refresh, logout; sin llamadas SRI ni producción' }));
 }

@@ -70,7 +70,7 @@ class AuthService extends ChangeNotifier {
   Future<void> registrar(String correo, String password, String nombre, String ruc) async {
     final data = await api.post(
       '/api/auth/register',
-      body: {'email': correo, 'password': password, 'nombre': nombre, 'ruc': ruc},
+      body: {if (correo.isNotEmpty) 'email': correo, 'password': password, 'nombre': nombre, 'ruc': ruc},
     );
     await _session.guardar(accessToken: data['accessToken'], refreshToken: data['refreshToken']);
     email = correo;

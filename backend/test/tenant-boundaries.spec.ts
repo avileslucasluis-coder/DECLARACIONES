@@ -46,7 +46,7 @@ describe('Períodos de consulta documental', () => {
   it('mantiene el filtro de empresa y omite el XML en el listado', async () => {
     const findMany = jest.fn().mockResolvedValue([{ id: 'v', xmlOriginal: 'privado' }]);
     const service = new VouchersService({ voucher: { findMany } } as any, {} as any);
-    await expect(service.listar('empresa', 12, 2026)).resolves.toEqual([{ id: 'v' }]);
+    await expect(service.listar('empresa', 12, 2026)).resolves.toEqual([{ id: 'v', detalleImpuestos: [] }]);
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { companyId: 'empresa', fechaEmision: { gte: new Date(2026, 11, 1), lt: new Date(2027, 0, 1) } } }));
   });
 });

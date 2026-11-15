@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { sameTaxpayer } from './taxpayer-identity';
 
 export class XmlComprobanteException extends Error {}
 
@@ -141,7 +142,9 @@ export function parseComprobanteXml(xmlContent: string, contribuyenteRuc: string
 
 function importeDecimal(raw: unknown): Prisma.Decimal {
   const text = String(raw ?? '');
-  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) {
+  // Some authorized emitters pad monetary values with trailing zeroes.
+  // Accept 6.16000 and .89 exactly, but do not round away a fraction of a cent.
+  if (!/^(?:\d+|\d*\.\d{1,2}0*)$/.test(text)) {
     throw new XmlComprobanteException('Importe inválido: se requiere un decimal no negativo con máximo dos decimales.');
   }
   const value = new Prisma.Decimal(text);
@@ -173,17 +176,17 @@ function clasificarDireccion(
   const ruc = contribuyenteRuc.trim();
 
   if (tipo === 'RETENCION') {
-    if (identificacionContraparte.trim() === ruc) return 'RETENCION_RECIBIDA';
-    if (rucEmisor.trim() === ruc) return 'RETENCION_EMITIDA';
+    if (sameTaxpayer(identificacionContraparte, ruc)) return 'RETENCION_RECIBIDA';
+    if (sameTaxpayer(rucEmisor, ruc)) return 'RETENCION_EMITIDA';
     return 'NO_RELACIONADO';
   }
   if (tipo === 'LIQUIDACION') {
-    if (rucEmisor.trim() === ruc) return 'COMPRA';
-    if (identificacionContraparte.trim() === ruc) return 'VENTA';
+    if (sameTaxpayer(rucEmisor, ruc)) return 'COMPRA';
+    if (sameTaxpayer(identificacionContraparte, ruc)) return 'VENTA';
     return 'NO_RELACIONADO';
   }
-  if (rucEmisor.trim() === ruc) return 'VENTA';
-  if (identificacionContraparte.trim() === ruc) return 'COMPRA';
+  if (sameTaxpayer(rucEmisor, ruc)) return 'VENTA';
+  if (sameTaxpayer(identificacionContraparte, ruc)) return 'COMPRA';
   return 'NO_RELACIONADO';
 }
 

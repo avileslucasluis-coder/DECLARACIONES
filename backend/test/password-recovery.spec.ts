@@ -20,7 +20,7 @@ describe('Recuperación de contraseña', () => {
 
   it('invalida el enlace si el envío falla sin revelar que la cuenta existe', async () => {
     const update = jest.fn();
-    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'u', activo: true }) },
+    const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'u', email: 'u@example.com', activo: true }) },
       passwordReset: { create: jest.fn().mockResolvedValue({ id: 'r' }), update } };
     const service = new PasswordRecoveryService(prisma as any, { checkConfiguration() {}, send: jest.fn().mockRejectedValue(new Error()) } as any);
     await expect(service.request('u@example.com')).resolves.toHaveProperty('message');

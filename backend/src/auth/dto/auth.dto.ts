@@ -1,11 +1,12 @@
-import { IsEmail, IsString, MinLength, MaxLength, Matches, ValidateIf } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, Matches, ValidateIf, IsOptional } from 'class-validator';
 
 export class RegisterDto {
   @Matches(/^(?:[0-9]{10}|[0-9]{13})$/, { message: 'Ingresa una cédula de 10 dígitos o un RUC de 13 dígitos.' })
   ruc!: string;
+  @IsOptional()
   @IsEmail()
   @MaxLength(254)
-  email!: string;
+  email?: string;
 
   @IsString()
   @MinLength(12, { message: 'La contraseña debe tener al menos 12 caracteres.' })
@@ -52,6 +53,6 @@ export class ForgotPasswordDto {
 export class ResetPasswordDto {
   @IsString() @Matches(/^[a-f0-9]{64}$/)
   token!: string;
-  @IsString() @MinLength(12) @MaxLength(128)
+  @IsString() @MinLength(12, { message: 'La contraseña debe tener al menos 12 caracteres.' }) @MaxLength(128)
   password!: string;
 }

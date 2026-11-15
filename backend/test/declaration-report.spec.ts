@@ -5,8 +5,8 @@ describe('Reporte y saldos anteriores', () => {
   it('exporta los valores históricos y neutraliza fórmulas y comillas', () => {
     const csv = declarationReport({ companyId: 'empresa', mes: 10, anio: 2026, totalIvaCompras: '93.24',
       ajustes: { justificacion: '=HYPERLINK("destino")\ntexto' }, liquidacion: { creditoSiguienteRetenciones: '707.62' } }, 3, new Date('2026-11-01Z'));
-    expect(csv).toContain('"93.24"');
-    expect(csv).toContain('"707.62"');
+    expect(csv).toContain(';93,24');
+    expect(csv).toContain(';707,62');
     expect(csv).toContain('"\'=HYPERLINK(""destino"")\ntexto"');
     expect(csv).toContain('"Versión";"3"');
   });

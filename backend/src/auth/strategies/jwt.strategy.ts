@@ -7,7 +7,7 @@ import { ConfigService } from '@nestjs/config';
 
 export interface JwtPayload {
   sub: string; // userId
-  email: string;
+  email: string | null;
   sv?: number;
 }
 

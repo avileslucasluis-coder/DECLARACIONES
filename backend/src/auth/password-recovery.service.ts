@@ -12,7 +12,7 @@ export class PasswordRecoveryService {
   async request(email: string) {
     this.mail.checkConfiguration();
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user?.activo) return generic;
+    if (!user?.activo || !user.email) return generic;
     const token = randomBytes(32).toString('hex');
     const record = await this.prisma.passwordReset.create({ data: {
       userId: user.id, tokenHash: this.hash(token), expiresAt: new Date(Date.now() + 15 * 60000),

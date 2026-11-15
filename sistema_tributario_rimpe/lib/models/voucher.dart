@@ -1,6 +1,9 @@
 /// Espeja `Voucher` del backend (reemplaza al antiguo `ComprobanteXml`
 /// local: el parseo del XML ahora lo hace el servidor).
 class Voucher {
+  final List<Map<String, dynamic>> detalleImpuestos;
+  final bool clasificacionPendiente;
+  final String fuente;
   final String id;
   final String tipoComprobante;
   final String direccion; // VENTA | COMPRA | RETENCION_RECIBIDA | RETENCION_EMITIDA | NO_RELACIONADO
@@ -18,6 +21,7 @@ class Voucher {
   final Withholding? withholding;
 
   Voucher({
+    this.detalleImpuestos = const [], this.clasificacionPendiente = false, this.fuente = 'XML',
     required this.id,
     required this.tipoComprobante,
     required this.direccion,
@@ -51,6 +55,8 @@ class Voucher {
   }
 
   factory Voucher.fromJson(Map<String, dynamic> json) => Voucher(
+        detalleImpuestos: (json['detalleImpuestos'] as List? ?? []).map((e) => Map<String, dynamic>.from(e)).toList(),
+        clasificacionPendiente: json['clasificacionPendiente'] == true, fuente: json['fuente'] ?? 'XML',
         id: json['id'],
         tipoComprobante: json['tipoComprobante'],
         direccion: json['direccion'],

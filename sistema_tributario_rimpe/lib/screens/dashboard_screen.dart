@@ -142,7 +142,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             Icon(Icons.description_outlined, size: 48, color: Colors.grey.shade400),
                             const SizedBox(height: 12),
                             Text(
-                              'Aún no has importado comprobantes.\nVe a "Importar XML" para comenzar.',
+                              'Aún no has importado comprobantes.\nVe a "Importar XML / TXT" para comenzar.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.grey.shade600),
                             ),

@@ -6,6 +6,7 @@ import { encryptPdf, decryptPdf } from '../security/encrypted-files';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { taxSummary } from '../vouchers/tax-detail';
 import { declarationReport } from './declaration-report';
 import { declarationSource } from './declaration-source';
 import { assertPeriodOpen } from './period-lock';
@@ -62,6 +63,8 @@ export class DeclarationsService {
     const vouchers = await tx.voucher.findMany({
       where: { companyId, fechaEmision: { gte: desde, lt: hasta } },
     });
+
+    if (vouchers.some(v => v.clasificacionPendiente)) throw new BadRequestException('Hay TXT pendientes de clasificación. Importa sus XML antes de generar la declaración.');
 
     let ventasGravadas = new Prisma.Decimal(0),
       ventas0 = new Prisma.Decimal(0),
@@ -132,7 +135,7 @@ export class DeclarationsService {
       totalRetencionesIvaAplicadas: redondear(retIvaAplicada),
       totalRetencionesRentaAplicadas: redondear(retRentaAplicada),
     };
-    Object.assign(liquidacion, declarationSource(vouchers));
+    Object.assign(liquidacion, declarationSource(vouchers), { desgloseTarifas: taxSummary(vouchers) });
     const fuentes = await this.fuentesCierre(tx, companyId, desde, hasta);
     liquidacion.fuentesCierre = fuentes;
     liquidacion.huellaFuentesCierre = sourceHash(fuentes);
